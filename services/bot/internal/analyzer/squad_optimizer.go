@@ -247,6 +247,33 @@ func (s *OptimizedSquad) applyFormation(f [3]int) {
 	}
 }
 
+func (s *OptimizedSquad) applyFormationSeasonStart(f [3]int) {
+	sortAndSeparate := func(list *[]SquadSlot, starterCount int) {
+		var starters, bench []SquadSlot
+		for _, slot := range *list {
+			if slot.IsStarter {
+				starters = append(starters, slot)
+			} else {
+				bench = append(bench, slot)
+			}
+		}
+		sort.Slice(starters, func(i, j int) bool {
+			return starters[i].Player.OverallScore > starters[j].Player.OverallScore
+		})
+		sort.Slice(bench, func(i, j int) bool {
+			return bench[i].Player.OverallScore > bench[j].Player.OverallScore
+		})
+		*list = append(starters, bench...)
+		for i := range *list {
+			(*list)[i].IsStarter = i < starterCount
+		}
+	}
+	sortAndSeparate(&s.Goalkeepers, 1)
+	sortAndSeparate(&s.Defenders, f[0])
+	sortAndSeparate(&s.Midfielders, f[1])
+	sortAndSeparate(&s.Forwards, f[2])
+}
+
 func (s *OptimizedSquad) computeCosts() {
 	s.TotalCost = 0
 	for _, slot := range s.allSlots() {
@@ -347,6 +374,7 @@ func tryFormationSeasonStart(
 			cost += p.NowCost
 			*slotList = append(*slotList, SquadSlot{Player: p, IsStarter: true})
 		}
+
 	}
 
 	if len(squad.Goalkeepers) < 1 || len(squad.Defenders) < defN ||
@@ -424,8 +452,8 @@ func OptimizeSeasonStartSquadWithReserve(
 		constraints.MinBenchMinutes = 700
 	}
 
-	startersByPos := buildPosMap(starterQuality, true)
-	benchByPos := buildPosMap(allPlayers, false)
+	startersByPos := buildPosMap(starterQuality, true, 0.25)
+	benchByPos := buildPosMap(allPlayers, false, 0)
 
 	bestEP := -1.0
 	var bestSquad *OptimizedSquad
@@ -444,7 +472,7 @@ func OptimizeSeasonStartSquadWithReserve(
 	}
 
 	if bestSquad != nil {
-		bestSquad.applyFormation(bestSquad.Form)
+		bestSquad.applyFormationSeasonStart(bestSquad.Form)
 		bestSquad.TotalEP = bestSquad.starting11EP()
 	}
 	return bestSquad
@@ -458,7 +486,7 @@ func OptimizeSeasonStartSquad(
 	bestEP := -1.0
 	var best *OptimizedSquad
 
-	for benchR := 200; benchR >= 120; benchR -= 10 {
+	for benchR := 150; benchR >= 80; benchR -= 5 {
 		squad := OptimizeSeasonStartSquadWithReserve(starterQuality, allPlayers, constraints, benchR)
 		if squad == nil {
 			continue
@@ -472,7 +500,32 @@ func OptimizeSeasonStartSquad(
 	return best
 }
 
-func buildPosMap(players []models.PlayerScore, filterByEP bool) map[int][]models.PlayerScore {
+func buildPosMap(players []models.PlayerScore, filterByEP bool, premiumBias float64) map[int][]models.PlayerScore {
+	type posStats struct {
+		min, max, sum float64
+		count         int
+	}
+	ps := map[int]*posStats{}
+	for _, p := range players {
+		if p.Availability <= 0 || p.NowCost <= 0 {
+			continue
+		}
+		s := ps[p.Position]
+		if s == nil {
+			s = &posStats{min: float64(p.NowCost), max: float64(p.NowCost)}
+			ps[p.Position] = s
+		}
+		cost := float64(p.NowCost)
+		if cost < s.min {
+			s.min = cost
+		}
+		if cost > s.max {
+			s.max = cost
+		}
+		s.sum += cost
+		s.count++
+	}
+
 	byPos := map[int][]models.PlayerScore{}
 	for _, p := range players {
 		if p.Availability <= 0 || p.NowCost <= 0 {
@@ -486,6 +539,14 @@ func buildPosMap(players []models.PlayerScore, filterByEP bool) map[int][]models
 			continue
 		}
 		p.OverallScore = ep
+		if premiumBias > 0 {
+			s := ps[p.Position]
+			costRange := s.max - s.min
+			if costRange > 0 {
+				normCost := (float64(p.NowCost) - s.min) / costRange
+				p.OverallScore = ep * (1.0 + normCost*premiumBias)
+			}
+		}
 		byPos[p.Position] = append(byPos[p.Position], p)
 	}
 	for pos := range byPos {

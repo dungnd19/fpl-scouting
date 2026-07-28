@@ -361,6 +361,16 @@ func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) [
 	isColdStart, _ := s.repo.IsColdStart(3)
 	hasSeasonData, _ := s.repo.HasSeasonData()
 
+	regPriorMins := 900.0
+
+	// Pre-load stats for all players
+	type scoredPlayer struct {
+		index      int
+		stats      *database.PlayerHistoryStats
+		fixtureAdj float64
+	}
+	var scoredList []scoredPlayer
+
 	for i := range players {
 		var stats *database.PlayerHistoryStats
 		var err error
@@ -383,15 +393,67 @@ func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) [
 		}
 
 		ScorePlayer(&players[i], stats, s.teamModel, fixtureAdj)
+		scoredList = append(scoredList, scoredPlayer{index: i, stats: stats, fixtureAdj: fixtureAdj})
+	}
 
+	// Compute position averages for regression
+	type posAvg struct {
+		xg90Sum, xa90Sum, csSum, ppgSum float64
+		totalMins                         int
+		count                             int
+	}
+	posAvgs := map[int]*posAvg{}
+	for _, sp := range scoredList {
+		p := &players[sp.index]
+		st := sp.stats
+		pos := p.Position
+		if posAvgs[pos] == nil {
+			posAvgs[pos] = &posAvg{}
+		}
+		pa := posAvgs[pos]
+		pa.xg90Sum += p.XGPer90
+		pa.xa90Sum += p.XAPer90
+		pa.csSum += p.CSRate
+		pa.ppgSum += p.PPG
+		pa.totalMins += st.Minutes
+		pa.count++
+	}
+
+	// Apply minutes-based regression
+	for _, sp := range scoredList {
+		p := &players[sp.index]
+		st := sp.stats
+		pa := posAvgs[p.Position]
+		if pa == nil || pa.count == 0 {
+			continue
+		}
+
+		avgXG90 := pa.xg90Sum / float64(pa.count)
+		avgXA90 := pa.xa90Sum / float64(pa.count)
+		avgCSRate := pa.csSum / float64(pa.count)
+		avgPPG := pa.ppgSum / float64(pa.count)
+
+		weight := float64(st.Minutes) / (float64(st.Minutes) + regPriorMins)
+
+		p.XGPer90 = avgXG90 + (p.XGPer90-avgXG90)*weight
+		p.XAPer90 = avgXA90 + (p.XAPer90-avgXA90)*weight
+		p.CSRate = avgCSRate + (p.CSRate-avgCSRate)*weight
+		p.PPG = avgPPG + (p.PPG-avgPPG)*weight
+
+		// Recompute ExpectedPoints with regressed stats
 		expectedMins := 90.0
-		if players[i].Minutes > 0 && players[i].Games > 0 {
-			expectedMins = float64(players[i].Minutes) / float64(players[i].Games)
+		if p.Minutes > 0 && p.Games > 0 {
+			expectedMins = float64(p.Minutes) / float64(p.Games)
 		}
 		if expectedMins > 90 {
 			expectedMins = 90
 		}
-		fixtures, _ := s.repo.GetUpcomingFixtures(players[i].TeamID, currentGW, 3)
+		p.ExpectedPoints = SimpleExpectedPoints(
+			p.Position, p.XGPer90, p.XAPer90, p.XGCPer90,
+			p.CSRate, p.PPG, p.Availability, expectedMins, sp.fixtureAdj,
+		)
+
+		fixtures, _ := s.repo.GetUpcomingFixtures(p.TeamID, currentGW, 3)
 		if len(fixtures) > 0 {
 			var fwdList []FixtureWithDifficulty
 			for j, f := range fixtures {
@@ -402,24 +464,14 @@ func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) [
 					GamesAhead: j,
 				})
 			}
-			players[i].ExpectedPointsMultiGW = MultiGWExpectedPoints(
-				players[i].Position,
-				players[i].XGPer90,
-				players[i].XAPer90,
-				players[i].CSRate,
-				players[i].PPG,
-				players[i].Availability,
-				expectedMins,
-				fwdList,
+			p.ExpectedPointsMultiGW = MultiGWExpectedPoints(
+				p.Position, p.XGPer90, p.XAPer90, p.CSRate, p.PPG,
+				p.Availability, expectedMins, fwdList,
 			)
 		} else {
 			discountTotal := 1.0 + math.Pow(14.0/15.0, 1) + math.Pow(14.0/15.0, 2)
-			players[i].ExpectedPointsMultiGW = players[i].ExpectedPoints * discountTotal
+			p.ExpectedPointsMultiGW = p.ExpectedPoints * discountTotal
 		}
-	}
-
-	if s.bayesModel != nil {
-		s.bayesModel.ApplyBayesianModel(players, s.repo)
 	}
 
 	return players
