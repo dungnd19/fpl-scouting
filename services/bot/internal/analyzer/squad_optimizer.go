@@ -1,6 +1,7 @@
 package analyzer
 
 import (
+	"log"
 	"math"
 	"sort"
 	"strconv"
@@ -496,6 +497,15 @@ func OptimizeSeasonStartSquadWithReserve(
 
 	startersByPos := buildPosMap(starterQuality, true)
 	benchByPos := buildPosMap(allPlayers, false)
+
+	if len(startersByPos[1]) < 1 || len(startersByPos[2]) < 3 || len(startersByPos[3]) < 3 || len(startersByPos[4]) < 1 {
+		log.Printf("SeasonStartSquad: insufficient starter candidates: GK=%d DEF=%d MID=%d FWD=%d",
+			len(startersByPos[1]), len(startersByPos[2]), len(startersByPos[3]), len(startersByPos[4]))
+		return nil
+	}
+	log.Printf("SeasonStartSquad: benchR=%d starters GK=%d DEF=%d MID=%d FWD=%d | bench GK=%d DEF=%d MID=%d FWD=%d",
+		benchReserve, len(startersByPos[1]), len(startersByPos[2]), len(startersByPos[3]), len(startersByPos[4]),
+		len(benchByPos[1]), len(benchByPos[2]), len(benchByPos[3]), len(benchByPos[4]))
 
 	bestEP := -1.0
 	var bestSquad *OptimizedSquad
