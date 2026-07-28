@@ -27,14 +27,15 @@ type OptimizedSquad struct {
 }
 
 type SquadConstraints struct {
-	Budget100k        int
-	MaxPerTeam        int
-	NumGK             int
-	NumDEF            int
-	NumMID            int
-	NumFWD            int
-	MinStarterMinutes int
-	MinBenchMinutes   int
+	Budget100k         int
+	MaxPerTeam         int
+	NumGK              int
+	NumDEF             int
+	NumMID             int
+	NumFWD             int
+	MinStarterMinutes  int
+	MinBenchMinutes    int
+	MaxBenchPlayerCost int
 }
 
 func DefaultSquadConstraints() SquadConstraints {
@@ -50,14 +51,15 @@ func DefaultSquadConstraints() SquadConstraints {
 
 func SeasonStartSquadConstraints() SquadConstraints {
 	return SquadConstraints{
-		Budget100k:        1000,
-		MaxPerTeam:        3,
-		NumGK:             2,
-		NumDEF:            5,
-		NumMID:            5,
-		NumFWD:            3,
-		MinStarterMinutes: 1500,
-		MinBenchMinutes:   700,
+		Budget100k:         1000,
+		MaxPerTeam:         3,
+		NumGK:              2,
+		NumDEF:             5,
+		NumMID:             5,
+		NumFWD:             3,
+		MinStarterMinutes:  1500,
+		MinBenchMinutes:    700,
+		MaxBenchPlayerCost: 60,
 	}
 }
 
@@ -408,6 +410,9 @@ func tryFormationSeasonStart(
 			if remainingBudget < p.NowCost {
 				continue
 			}
+			if p.NowCost > c.MaxBenchPlayerCost {
+				continue
+			}
 			picked[p.PlayerID] = true
 			teamCnt[p.TeamID]++
 			remainingBudget -= p.NowCost
@@ -451,9 +456,12 @@ func OptimizeSeasonStartSquadWithReserve(
 	if constraints.MinBenchMinutes == 0 {
 		constraints.MinBenchMinutes = 700
 	}
+	if constraints.MaxBenchPlayerCost == 0 {
+		constraints.MaxBenchPlayerCost = 60
+	}
 
-	startersByPos := buildPosMap(starterQuality, true, 0.25)
-	benchByPos := buildPosMap(allPlayers, false, 0)
+	startersByPos := buildPosMap(starterQuality, true)
+	benchByPos := buildPosMap(allPlayers, false)
 
 	bestEP := -1.0
 	var bestSquad *OptimizedSquad
@@ -500,32 +508,7 @@ func OptimizeSeasonStartSquad(
 	return best
 }
 
-func buildPosMap(players []models.PlayerScore, filterByEP bool, premiumBias float64) map[int][]models.PlayerScore {
-	type posStats struct {
-		min, max, sum float64
-		count         int
-	}
-	ps := map[int]*posStats{}
-	for _, p := range players {
-		if p.Availability <= 0 || p.NowCost <= 0 {
-			continue
-		}
-		s := ps[p.Position]
-		if s == nil {
-			s = &posStats{min: float64(p.NowCost), max: float64(p.NowCost)}
-			ps[p.Position] = s
-		}
-		cost := float64(p.NowCost)
-		if cost < s.min {
-			s.min = cost
-		}
-		if cost > s.max {
-			s.max = cost
-		}
-		s.sum += cost
-		s.count++
-	}
-
+func buildPosMap(players []models.PlayerScore, filterByEP bool) map[int][]models.PlayerScore {
 	byPos := map[int][]models.PlayerScore{}
 	for _, p := range players {
 		if p.Availability <= 0 || p.NowCost <= 0 {
@@ -539,14 +522,6 @@ func buildPosMap(players []models.PlayerScore, filterByEP bool, premiumBias floa
 			continue
 		}
 		p.OverallScore = ep
-		if premiumBias > 0 {
-			s := ps[p.Position]
-			costRange := s.max - s.min
-			if costRange > 0 {
-				normCost := (float64(p.NowCost) - s.min) / costRange
-				p.OverallScore = ep * (1.0 + normCost*premiumBias)
-			}
-		}
 		byPos[p.Position] = append(byPos[p.Position], p)
 	}
 	for pos := range byPos {
