@@ -274,6 +274,50 @@ func (r *Repository) GetMyTeamFull(userID string) ([]MyTeamPlayer, error) {
 	return players, rows.Err()
 }
 
+func (r *Repository) GetAllPlayers() ([]models.PlayerScore, error) {
+	rows, err := r.db.Query(`
+		SELECT
+			p.id, p.web_name, p.team, COALESCE(t.short_name, ''), p.element_type,
+			p.now_cost, p.total_points, p.minutes, p.status,
+			COALESCE(p.chance_of_playing_next_round, 100),
+			CAST(p.form AS REAL), CAST(p.points_per_game AS REAL)
+		FROM players p
+		LEFT JOIN teams t ON p.team = t.id
+		ORDER BY p.total_points DESC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query players: %w", err)
+	}
+	defer rows.Close()
+
+	var players []models.PlayerScore
+	for rows.Next() {
+		var p models.PlayerScore
+		var status string
+		var avail int
+
+		err := rows.Scan(
+			&p.PlayerID, &p.WebName, &p.TeamID, &p.TeamName, &p.Position,
+			&p.NowCost, &p.TotalPoints, &p.Minutes, &status, &avail,
+			&p.Form, &p.PointsPerGame,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		p.Status = status
+		p.Availability = float64(avail) / 100.0
+		if status == "i" || status == "s" {
+			p.Availability = 0
+		} else if status == "d" {
+			p.Availability *= 0.5
+		}
+
+		players = append(players, p)
+	}
+	return players, rows.Err()
+}
+
 func (r *Repository) GetActivePlayersWithExpected(minMinutes int) ([]models.PlayerScore, error) {
 	rows, err := r.db.Query(`
 		SELECT

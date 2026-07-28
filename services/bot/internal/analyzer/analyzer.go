@@ -611,7 +611,7 @@ func (s *Service) SuggestSeasonStartSquad() (*OptimizedSquad, error) {
 //   - Mid-season: scores based on last 2 complete seasons as stable baseline
 //     blended 50/50 with current-season weighted stats.
 func (s *Service) BuildInitialSquad() (*OptimizedSquad, error) {
-	players, err := s.repo.GetActivePlayersWithExpected(0)
+	players, err := s.repo.GetAllPlayers()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load players: %w", err)
 	}
