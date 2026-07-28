@@ -474,6 +474,24 @@ func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) [
 		}
 	}
 
+	// Blend actual total points from last season as a proven-delivery signal.
+	// Players with high total points (nailed starters who delivered) get a
+	// modest boost over those with only promising per-90 stats.
+	maxTP := map[int]int{}
+	for _, sp := range scoredList {
+		p := &players[sp.index]
+		if p.TotalPoints > maxTP[p.Position] {
+			maxTP[p.Position] = p.TotalPoints
+		}
+	}
+	for _, sp := range scoredList {
+		p := &players[sp.index]
+		if maxTP[p.Position] > 0 {
+			normTP := float64(p.TotalPoints) / float64(maxTP[p.Position])
+			p.ExpectedPointsMultiGW *= (0.8 + 0.2*normTP)
+		}
+	}
+
 	return players
 }
 
