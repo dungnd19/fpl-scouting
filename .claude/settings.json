@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" \"https://users.premierleague.com/accounts/login/\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -L \"https://premierleague.com/accounts/login/\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" -L \"https://id.premierleague.com/accounts/login/\")"
+    ]
+  }
+}

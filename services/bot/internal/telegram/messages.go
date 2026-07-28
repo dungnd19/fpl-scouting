@@ -1,0 +1,148 @@
+package telegram
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"fpl-bot/internal/analyzer"
+	"fpl-bot/internal/database"
+	"fpl-bot/internal/models"
+)
+
+// FormatRecommendation formats a recommendation as a Telegram message
+func FormatRecommendation(sellName, buyName string, expectedGain, priceDiff float64, reason string, score float64) string {
+	return fmt.Sprintf(
+		"📊 *Transfer Recommendation*\n\n"+
+			"🔴 Sell: *%s*\n"+
+			"🟢 Buy: *%s*\n\n"+
+			"📈 Expected gain: *%.1f* points\n"+
+			"💰 Price difference: *£%.1fm*\n\n"+
+			"ℹ️ %s\n\n"+
+			"Score: %.2f",
+		sellName, buyName,
+		expectedGain, priceDiff,
+		reason, score,
+	)
+}
+
+// FormatStatus formats system status as a Telegram message
+func FormatStatus(playerCount, recCount int, lastFetch, lastAnalyze string) string {
+	return fmt.Sprintf(
+		"📊 *System Status*\n\n"+
+			"👥 Players in DB: %d\n"+
+			"📝 Pending recommendations: %d\n"+
+			"🔄 Last fetch: %s\n"+
+			"📊 Last analysis: %s",
+		playerCount, recCount, FormatTime(lastFetch), FormatTime(lastAnalyze),
+	)
+}
+
+// FormatTime formats a timestamp string for display
+func FormatTime(timeStr string) string {
+	if timeStr == "" {
+		return "Never"
+	}
+	t, err := time.Parse(time.RFC3339, timeStr)
+	if err != nil {
+		return timeStr
+	}
+	return t.Format("2006-01-02 15:04")
+}
+
+// WelcomeMessage returns the welcome message
+func WelcomeMessage() string {
+	return "Welcome to FPL Scouting Bot!\n\n" +
+		"Commands:\n" +
+		"/myteam - Show your current squad\n" +
+		"/suggest - Analyze squad & suggest transfers\n" +
+		"/report - Top 5 per position (5/10 GW & season)\n" +
+		"/recommendations - View pending recommendations\n" +
+		"/status - System status"
+}
+
+// FormatMyTeam formats the user's squad for Telegram
+func FormatMyTeam(players []database.MyTeamPlayer, bank int) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("*Your Squad* (Bank: £%.1fm)\n", float64(bank)/10.0))
+
+	// Group: starting XI (pos 1-11) and bench (12-15)
+	posNames := map[int]string{1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
+	lastPos := 0
+
+	for i, p := range players {
+		if i == 11 {
+			b.WriteString("\n*Bench*\n")
+			lastPos = 0
+		}
+
+		if p.Position != lastPos && i < 11 {
+			b.WriteString(fmt.Sprintf("\n*%s*\n", posNames[p.Position]))
+			lastPos = p.Position
+		}
+
+		captain := ""
+		if p.IsCaptain {
+			captain = " (C)"
+		} else if p.IsViceCaptain {
+			captain = " (V)"
+		}
+
+		b.WriteString(fmt.Sprintf("  %s%s — %s £%.1fm | %dpts, form %.1f\n",
+			p.WebName, captain, p.TeamName,
+			float64(p.NowCost)/10.0, p.TotalPoints, p.Form,
+		))
+	}
+
+	// Total squad value
+	total := bank
+	for _, p := range players {
+		total += p.SellingPrice
+	}
+	b.WriteString(fmt.Sprintf("\n*Total value:* £%.1fm", float64(total)/10.0))
+
+	return b.String()
+}
+
+// positionEmoji returns an emoji for a player position
+func positionEmoji(pos int) string {
+	switch pos {
+	case 1:
+		return "GK"
+	case 2:
+		return "DEF"
+	case 3:
+		return "MID"
+	case 4:
+		return "FWD"
+	}
+	return "?"
+}
+
+// FormatReport formats a top-5-per-position report for Telegram
+func FormatReport(title string, reports []analyzer.PositionReport) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("*%s*\n", title))
+
+	for _, pr := range reports {
+		posLabel := positionEmoji(pr.Position)
+		b.WriteString(fmt.Sprintf("\n*%s*\n", posLabel))
+
+		for i, p := range pr.Players {
+			line := formatReportLine(i+1, p)
+			b.WriteString(line)
+		}
+	}
+
+	return b.String()
+}
+
+// formatReportLine formats a single player line in a report
+func formatReportLine(rank int, p models.PlayerReport) string {
+	price := float64(p.NowCost) / 10.0
+	return fmt.Sprintf(
+		"%d. %s (%s) £%.1fm | xS:%.1f ppg:%.1f xGI:%.2f\n",
+		rank, p.WebName, p.TeamName, price,
+		p.XScore, p.PPG, p.XGIPer90,
+	)
+}

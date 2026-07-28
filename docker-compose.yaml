@@ -1,0 +1,71 @@
+services:
+  fpl-core:
+    build:
+      context: ./services/core
+      dockerfile: Dockerfile
+    container_name: fpl-core
+    restart: unless-stopped
+    volumes:
+      - fpl-data:/data
+      - ./sql/schema.sql:/app/schema.sql:ro
+    environment:
+      - DB_PATH=/data/fpl.db
+      - SCHEMA_PATH=/app/schema.sql
+      - FETCH_SCHEDULE=${FETCH_SCHEDULE:-0 */1 * * *}
+      - USER_ID=${DEFAULT_USER_ID:-default}
+      - FPL_TEAM_ID=${FPL_TEAM_ID}
+    networks:
+      - fpl-net
+    deploy:
+      resources:
+        limits:
+          memory: 50M
+        reservations:
+          memory: 30M
+    healthcheck:
+      test: [ "CMD", "test", "-f", "/data/fpl.db" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  fpl-bot:
+    build:
+      context: ./services/bot
+      dockerfile: Dockerfile
+    container_name: fpl-bot
+    restart: unless-stopped
+    volumes:
+      - fpl-data:/data
+    environment:
+      - DB_PATH=/data/fpl.db
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - CHECK_INTERVAL_MINUTES=${CHECK_INTERVAL_MINUTES:-60}
+      - DEFAULT_USER_ID=${DEFAULT_USER_ID:-default}
+      - FPL_SESSION_COOKIE=${FPL_SESSION_COOKIE}
+      - FPL_TEAM_ID=${FPL_TEAM_ID}
+      - BOT_DEBUG=${BOT_DEBUG:-false}
+    networks:
+      - fpl-net
+    depends_on:
+      - fpl-core
+    deploy:
+      resources:
+        limits:
+          memory: 60M
+        reservations:
+          memory: 40M
+    healthcheck:
+      test: [ "CMD", "pgrep", "-f", "fpl-bot" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  fpl-data:
+    driver: local
+
+networks:
+  fpl-net:
+    driver: bridge
