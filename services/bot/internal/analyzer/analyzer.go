@@ -361,7 +361,7 @@ func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) [
 	isColdStart, _ := s.repo.IsColdStart(3)
 	hasSeasonData, _ := s.repo.HasSeasonData()
 
-	regPriorMins := 900.0
+	regPriorMins := 1500.0
 
 	// Pre-load stats for all players
 	type scoredPlayer struct {
@@ -488,7 +488,7 @@ func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) [
 		p := &players[sp.index]
 		if maxTP[p.Position] > 0 {
 			normTP := float64(p.TotalPoints) / float64(maxTP[p.Position])
-			p.ExpectedPointsMultiGW *= (0.8 + 0.2*normTP)
+			p.ExpectedPointsMultiGW *= (0.6 + 0.4*normTP)
 		}
 	}
 
