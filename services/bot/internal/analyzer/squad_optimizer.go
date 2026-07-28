@@ -27,15 +27,14 @@ type OptimizedSquad struct {
 }
 
 type SquadConstraints struct {
-	Budget100k         int
-	MaxPerTeam         int
-	NumGK              int
-	NumDEF             int
-	NumMID             int
-	NumFWD             int
-	MinStarterMinutes  int
-	MinBenchMinutes    int
-	MaxBenchPlayerCost int
+	Budget100k        int
+	MaxPerTeam        int
+	NumGK             int
+	NumDEF            int
+	NumMID            int
+	NumFWD            int
+	MinStarterMinutes int
+	MinBenchMinutes   int
 }
 
 func DefaultSquadConstraints() SquadConstraints {
@@ -51,15 +50,14 @@ func DefaultSquadConstraints() SquadConstraints {
 
 func SeasonStartSquadConstraints() SquadConstraints {
 	return SquadConstraints{
-		Budget100k:         1000,
-		MaxPerTeam:         3,
-		NumGK:              2,
-		NumDEF:             5,
-		NumMID:             5,
-		NumFWD:             3,
-		MinStarterMinutes:  1500,
-		MinBenchMinutes:    700,
-		MaxBenchPlayerCost: 60,
+		Budget100k:        1000,
+		MaxPerTeam:        3,
+		NumGK:             2,
+		NumDEF:            5,
+		NumMID:            5,
+		NumFWD:            3,
+		MinStarterMinutes: 1500,
+		MinBenchMinutes:   700,
 	}
 }
 
@@ -410,9 +408,6 @@ func tryFormationSeasonStart(
 			if remainingBudget < p.NowCost {
 				continue
 			}
-			if p.NowCost > c.MaxBenchPlayerCost {
-				continue
-			}
 			picked[p.PlayerID] = true
 			teamCnt[p.TeamID]++
 			remainingBudget -= p.NowCost
@@ -455,9 +450,6 @@ func OptimizeSeasonStartSquadWithReserve(
 	}
 	if constraints.MinBenchMinutes == 0 {
 		constraints.MinBenchMinutes = 700
-	}
-	if constraints.MaxBenchPlayerCost == 0 {
-		constraints.MaxBenchPlayerCost = 60
 	}
 
 	startersByPos := buildPosMap(starterQuality, true)
