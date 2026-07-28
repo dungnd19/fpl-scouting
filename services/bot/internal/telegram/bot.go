@@ -89,24 +89,24 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		log.Printf("Failed to register chat ID: %v", err)
 	}
 
-	// Handle commands
+	// Handle commands (longer prefixes first to avoid partial match, e.g. /start vs /startsquad)
 	switch {
-	case strings.HasPrefix(message.Text, "/start"):
-		b.handleStart(message)
+	case strings.HasPrefix(message.Text, "/startsquad"):
+		b.handleStartSquad(message)
 	case strings.HasPrefix(message.Text, "/status"):
 		b.handleStatus(message)
+	case strings.HasPrefix(message.Text, "/recommendations"):
+		b.handleRecommendations(message)
 	case strings.HasPrefix(message.Text, "/myteam"):
 		b.handleMyTeam(message)
 	case strings.HasPrefix(message.Text, "/fetch"):
 		b.handleFetch(message)
 	case strings.HasPrefix(message.Text, "/suggest"):
 		b.handleSuggest(message)
-	case strings.HasPrefix(message.Text, "/startsquad"):
-		b.handleStartSquad(message)
 	case strings.HasPrefix(message.Text, "/report"):
 		b.handleReport(message)
-	case strings.HasPrefix(message.Text, "/recommendations"):
-		b.handleRecommendations(message)
+	case strings.HasPrefix(message.Text, "/start"):
+		b.handleStart(message)
 	default:
 		msg := tgbotapi.NewMessage(message.Chat.ID, "Unknown command. Use /start to see available commands.")
 		b.api.Send(msg)
