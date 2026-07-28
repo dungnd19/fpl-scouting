@@ -2,10 +2,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -102,15 +105,24 @@ func main() {
 
 	// Cron mode — fetch only
 	c := cron.New()
+	var fetchMu sync.Mutex
 
-	_, err = c.AddFunc(cfg.FetchSchedule, func() {
-		log.Println("Starting scheduled fetch task...")
-		if err := fetcherSvc.FetchAllWithTeam(cfg.UserID, cfg.FPLTeamID); err != nil {
-			log.Printf("Scheduled fetch task failed: %v", err)
-		} else {
-			log.Println("Scheduled fetch task completed")
+	runFetch := func() {
+		if !fetchMu.TryLock() {
+			log.Println("Fetch already in progress, skipping")
+			return
 		}
-	})
+		defer fetchMu.Unlock()
+		log.Println("Starting fetch task...")
+		if err := fetcherSvc.FetchAllWithTeam(cfg.UserID, cfg.FPLTeamID); err != nil {
+			log.Printf("Fetch task failed: %v", err)
+		} else {
+			log.Println("Fetch task completed")
+			repo.SetLastFetch()
+		}
+	}
+
+	_, err = c.AddFunc(cfg.FetchSchedule, runFetch)
 	if err != nil {
 		log.Fatalf("Failed to schedule fetch task: %v", err)
 	}
@@ -118,13 +130,25 @@ func main() {
 	c.Start()
 	log.Printf("Cron scheduler started - fetch: %s", cfg.FetchSchedule)
 
+	// HTTP trigger endpoint
+	http.HandleFunc("/fetch", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("HTTP trigger: /fetch requested")
+		go runFetch()
+		fmt.Fprintln(w, "Fetch triggered")
+	})
+
+	go func() {
+		log.Println("HTTP endpoint listening on :8090")
+		if err := http.ListenAndServe(":8090", nil); err != nil {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+
 	// Run initial fetch on startup
 	go func() {
 		time.Sleep(2 * time.Second)
 		log.Println("Running initial fetch...")
-		if err := fetcherSvc.FetchAllWithTeam(cfg.UserID, cfg.FPLTeamID); err != nil {
-			log.Printf("Initial fetch failed: %v", err)
-		}
+		runFetch()
 	}()
 
 	// Wait for interrupt

@@ -3,8 +3,10 @@ package telegram
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"fpl-bot/internal/analyzer"
 	"fpl-bot/internal/database"
@@ -47,6 +49,7 @@ func (b *Bot) Start() error {
 	// Register command menu for auto-complete
 	commands := []tgbotapi.BotCommand{
 		{Command: "myteam", Description: "Show your current squad"},
+		{Command: "fetch", Description: "Trigger FPL data fetch on demand"},
 		{Command: "suggest", Description: "Analyze squad & suggest transfers"},
 		{Command: "startsquad", Description: "Build initial 15-player squad"},
 		{Command: "report", Description: "Top 5 per position (5/10 GW & season)"},
@@ -94,6 +97,8 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		b.handleStatus(message)
 	case strings.HasPrefix(message.Text, "/myteam"):
 		b.handleMyTeam(message)
+	case strings.HasPrefix(message.Text, "/fetch"):
+		b.handleFetch(message)
 	case strings.HasPrefix(message.Text, "/suggest"):
 		b.handleSuggest(message)
 	case strings.HasPrefix(message.Text, "/startsquad"):
@@ -148,6 +153,21 @@ func (b *Bot) handleMyTeam(message *tgbotapi.Message) {
 	text := FormatMyTeam(players, bank)
 	msg := tgbotapi.NewMessage(message.Chat.ID, text)
 	msg.ParseMode = "Markdown"
+	b.api.Send(msg)
+}
+
+// handleFetch triggers a data fetch on the core service
+func (b *Bot) handleFetch(message *tgbotapi.Message) {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get("http://fpl-core:8090/fetch")
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Failed to trigger fetch: %v", err))
+		b.api.Send(msg)
+		return
+	}
+	defer resp.Body.Close()
+
+	msg := tgbotapi.NewMessage(message.Chat.ID, "Fetch triggered. Data will be refreshed shortly.")
 	b.api.Send(msg)
 }
 
