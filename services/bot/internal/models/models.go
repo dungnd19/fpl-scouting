@@ -70,6 +70,10 @@ type PlayerScore struct {
 	PPG      float64
 	Games    int
 
+	// DEFCON per-90 rates
+	CBITPer90  float64
+	CBIRTPer90 float64
+
 	// Phase 1: time-weighted versions
 	WeightedXGPer90  float64
 	WeightedXAPer90  float64

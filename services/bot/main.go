@@ -130,7 +130,7 @@ func scoreAllPlayers(repo *database.Repository) []models.PlayerScore {
 			continue
 		}
 
-		analyzer.ScorePlayer(&p, stats, nil, 1.0)
+		analyzer.ScorePlayer(&p, stats, nil, 1.0, 3)
 
 		fixtures, _ := repo.GetUpcomingFixtures(p.TeamID, currentGW, 3)
 		var fwdList []analyzer.FixtureWithDifficulty
@@ -149,12 +149,12 @@ func scoreAllPlayers(repo *database.Repository) []models.PlayerScore {
 		}
 		p.ExpectedPoints = analyzer.SimpleExpectedPoints(
 			p.Position, p.XGPer90, p.XAPer90, p.XGCPer90, p.CSRate, p.PPG,
-			p.Availability, expectedMins, 1.0,
+			p.Availability, expectedMins, 1.0, 0,
 		)
 		if len(fwdList) > 0 {
 			p.ExpectedPointsMultiGW = analyzer.MultiGWExpectedPoints(
 				p.Position, p.XGPer90, p.XAPer90, p.CSRate, p.PPG,
-				p.Availability, expectedMins, fwdList,
+				p.Availability, expectedMins, fwdList, 0,
 			)
 		} else {
 			p.ExpectedPointsMultiGW = p.ExpectedPoints

@@ -40,6 +40,7 @@ func ExpectedFPLPoints(
 	expectedMinutes float64,
 	teamGoalDist []float64,
 	teamConcedeDist []float64,
+	defconScore float64,
 ) float64 {
 	if expectedMinutes <= 0 || avail <= 0 {
 		return 0
@@ -70,6 +71,9 @@ func ExpectedFPLPoints(
 	// 5. Card points — average historical cards
 	cardAvg := avgCardsPerAppearance(position)
 	ep += cardAvg * avail
+
+	// 6. DEFCON points
+	ep += defconScore
 
 	return ep
 }
@@ -255,6 +259,7 @@ func SimpleExpectedPoints(
 	avail float64,
 	expectedMinutes float64,
 	fixtureDifficulty float64,
+	defconScore float64,
 ) float64 {
 	if expectedMinutes <= 0 || avail <= 0 {
 		return 0
@@ -295,6 +300,9 @@ func SimpleExpectedPoints(
 	ep += avgBonusPerAppearance(position) * avail
 	ep += avgCardsPerAppearance(position) * avail
 
+	// DEFCON points
+	ep += defconScore
+
 	return ep
 }
 
@@ -310,13 +318,14 @@ func MultiGWExpectedPoints(
 	avail float64,
 	expectedMinutes float64,
 	fixtures []FixtureWithDifficulty,
+	defconScore float64,
 ) float64 {
 	total := 0.0
 	for _, f := range fixtures {
 		discount := math.Pow(14.0/15.0, float64(f.GamesAhead))
 		fdm := FixtureDifficultyMultiplier(f.Difficulty)
 		ep := SimpleExpectedPoints(
-			position, xGPer90, xAPer90, 1.0, csRate, ppg, avail, expectedMinutes, fdm,
+			position, xGPer90, xAPer90, 1.0, csRate, ppg, avail, expectedMinutes, fdm, defconScore,
 		)
 		total += ep * discount
 	}

@@ -71,6 +71,9 @@ CREATE TABLE IF NOT EXISTS player_history (
     expected_assists REAL,
     expected_goal_involvements REAL,
     expected_goals_conceded REAL,
+    clearances_blocks_interceptions INTEGER,
+    tackles INTEGER,
+    recoveries INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(player_id, event) -- prevent duplicates
 );

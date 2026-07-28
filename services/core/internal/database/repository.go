@@ -118,8 +118,9 @@ func (r *Repository) StorePlayerHistory(history []models.HistoryEntry) error {
 			goals_conceded, saves, bonus, bps, influence, creativity, threat,
 			ict_index, value, selected, transfers_balance, transfers_in,
 			transfers_out, expected_goals, expected_assists,
-			expected_goal_involvements, expected_goals_conceded
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			expected_goal_involvements, expected_goals_conceded,
+			clearances_blocks_interceptions, tackles, recoveries
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
@@ -134,6 +135,7 @@ func (r *Repository) StorePlayerHistory(history []models.HistoryEntry) error {
 			h.ICTIndex, h.Value, h.Selected, h.TransfersBalance, h.TransfersIn,
 			h.TransfersOut, h.ExpectedGoals, h.ExpectedAssists,
 			h.ExpectedGoalInvolvements, h.ExpectedGoalsConceded,
+			h.ClearancesBlocksInterceptions, h.Tackles, h.Recoveries,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to insert history for player %d: %w", h.Element, err)

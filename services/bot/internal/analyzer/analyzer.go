@@ -105,7 +105,6 @@ func (s *Service) Suggest() ([]models.Recommendation, error) {
 		var stats *database.PlayerHistoryStats
 		var err error
 
-		// Phase 1: use time-decayed weighted stats, or blended multi-season if cold start
 		if isColdStart && hasSeasonData {
 			stats, err = s.repo.GetPlayerMultiSeasonBlendedStats(players[i].PlayerID, 5)
 		} else {
@@ -115,18 +114,44 @@ func (s *Service) Suggest() ([]models.Recommendation, error) {
 			continue
 		}
 
-		// Phase 2+4: fixture difficulty adjustment
 		fixtureAdj := 1.0
+		fixtureDifficulty := 3
 		if s.teamModel != nil {
 			fixture, err := s.repo.GetNextFixture(players[i].TeamID, currentGW)
 			if err == nil && fixture != nil {
 				fixtureAdj = FixtureDifficultyMultiplier(fixture.Difficulty)
+				fixtureDifficulty = fixture.Difficulty
 			}
 		}
 
-		ScorePlayer(&players[i], stats, s.teamModel, fixtureAdj)
+		ScorePlayer(&players[i], stats, s.teamModel, fixtureAdj, fixtureDifficulty)
 
-		// Phase 4: multi-GW expected points
+		nineties := float64(stats.Minutes) / 90.0
+		defconScore := 0.0
+		if players[i].Position == 2 {
+			cbitPer90 := float64(stats.CBIT) / nineties
+			expectedMins := float64(players[i].Minutes) / float64(players[i].Games)
+			if expectedMins > 90 {
+				expectedMins = 90
+			}
+			minsFrac := expectedMins / 90.0
+			if minsFrac > 1.0 {
+				minsFrac = 1.0
+			}
+			defconScore = expectedDefconPoints(cbitPer90, minsFrac, 10)
+		} else if players[i].Position == 3 {
+			cbirtPer90 := float64(stats.CBIT+stats.Tackles+stats.Recoveries) / nineties
+			expectedMins := float64(players[i].Minutes) / float64(players[i].Games)
+			if expectedMins > 90 {
+				expectedMins = 90
+			}
+			minsFrac := expectedMins / 90.0
+			if minsFrac > 1.0 {
+				minsFrac = 1.0
+			}
+			defconScore = expectedDefconPoints(cbirtPer90, minsFrac, 12)
+		}
+
 		fixtures, _ := s.repo.GetUpcomingFixtures(players[i].TeamID, currentGW, 3)
 		if len(fixtures) > 0 {
 			var fwdList []FixtureWithDifficulty
@@ -154,6 +179,7 @@ func (s *Service) Suggest() ([]models.Recommendation, error) {
 				players[i].Availability,
 				expectedMins,
 				fwdList,
+				defconScore,
 			)
 		} else {
 			players[i].ExpectedPointsMultiGW = players[i].ExpectedPoints
@@ -178,10 +204,23 @@ func (s *Service) Suggest() ([]models.Recommendation, error) {
 			continue
 		}
 
-		// Phase 6: sort by ExpectedPointsMultiGW for multi-week-aware ranking
 		sort.Slice(posList, func(i, j int) bool {
 			return posList[i].ExpectedPointsMultiGW > posList[j].ExpectedPointsMultiGW
 		})
+
+		positionMedianVal := 0.0
+		if len(posList) > 0 {
+			vals := make([]float64, 0, len(posList))
+			for _, p := range posList {
+				if p.Value > 0 {
+					vals = append(vals, p.Value)
+				}
+			}
+			sort.Float64s(vals)
+			if len(vals) > 0 {
+				positionMedianVal = vals[len(vals)/2]
+			}
+		}
 
 		var sellCandidates, buyCandidates []models.PlayerScore
 
@@ -209,11 +248,17 @@ func (s *Service) Suggest() ([]models.Recommendation, error) {
 			}
 		}
 
-		if len(buyCandidates) > 10 {
-			buyCandidates = buyCandidates[:10]
-		}
+		buyCandidates = filterBuyCandidates(buyCandidates, positionMedianVal, 10)
 
 		for _, sell := range sellCandidates {
+			sellPrice := sell.NowCost
+			if sp, ok := sellingPrices[sell.PlayerID]; ok && sp > 0 {
+				sellPrice = sp
+			}
+			if hasTeam && !canAffordAnyBuy(sellPrice, bank, buyCandidates) {
+				continue
+			}
+
 			for _, buy := range buyCandidates {
 				if sell.PlayerID == buy.PlayerID {
 					continue
@@ -223,33 +268,21 @@ func (s *Service) Suggest() ([]models.Recommendation, error) {
 				}
 
 				if hasTeam {
-					sellPrice := sellingPrices[sell.PlayerID]
-					if sellPrice == 0 {
-						sellPrice = sell.NowCost
-					}
 					cost := buy.NowCost - sellPrice
 					if cost > bank {
 						continue
 					}
 				}
 
-				// Phase 3+4: use multi-GW expected points for gain calculation
 				gain := buy.ExpectedPointsMultiGW - sell.ExpectedPointsMultiGW
 				if gain <= 0 {
 					continue
 				}
 
-				sellPrice := sell.NowCost
-				if sp, ok := sellingPrices[sell.PlayerID]; ok && sp > 0 {
-					sellPrice = sp
-				}
 				priceDiff := float64(buy.NowCost-sellPrice) / 10.0
 				valueGain := buy.Value - sell.Value
 
-				// Phase 6: account for potential points hit in score
-				freeTransfers, _ := s.repo.GetFreeTransfers()
 				recScore := gain*2.0 + valueGain*3.0 - math.Abs(priceDiff)*0.3
-				_ = freeTransfers
 
 				reason := fmt.Sprintf(
 					"%s (%s, EP %.2f/mGW, sell £%.1fm) → %s (%s, EP %.2f/mGW, £%.1fm). "+
@@ -357,6 +390,48 @@ func max(a, b int) int {
 	return b
 }
 
+func filterBuyCandidates(candidates []models.PlayerScore, medianVal float64, cap int) []models.PlayerScore {
+	if len(candidates) == 0 {
+		return nil
+	}
+	takeN := 15
+	if takeN > len(candidates) {
+		takeN = len(candidates)
+	}
+	topEP := candidates[:takeN]
+
+	if medianVal <= 0 {
+		if len(topEP) > cap {
+			return topEP[:cap]
+		}
+		return topEP
+	}
+
+	var filtered []models.PlayerScore
+	for _, p := range topEP {
+		if p.Value >= medianVal {
+			filtered = append(filtered, p)
+		}
+	}
+
+	if len(filtered) < 3 {
+		filtered = topEP
+	}
+	if len(filtered) > cap {
+		filtered = filtered[:cap]
+	}
+	return filtered
+}
+
+func canAffordAnyBuy(sellPrice int, bank int, buyCandidates []models.PlayerScore) bool {
+	for _, buy := range buyCandidates {
+		if buy.NowCost-sellPrice <= bank {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) []models.PlayerScore {
 	isColdStart, _ := s.repo.IsColdStart(3)
 	hasSeasonData, _ := s.repo.HasSeasonData()
@@ -385,14 +460,16 @@ func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) [
 		}
 
 		fixtureAdj := 1.0
+		fixtureDifficulty := 3
 		if s.teamModel != nil {
 			fixture, err := s.repo.GetNextFixture(players[i].TeamID, currentGW)
 			if err == nil && fixture != nil {
 				fixtureAdj = FixtureDifficultyMultiplier(fixture.Difficulty)
+				fixtureDifficulty = fixture.Difficulty
 			}
 		}
 
-		ScorePlayer(&players[i], stats, s.teamModel, fixtureAdj)
+		ScorePlayer(&players[i], stats, s.teamModel, fixtureAdj, fixtureDifficulty)
 		scoredList = append(scoredList, scoredPlayer{index: i, stats: stats, fixtureAdj: fixtureAdj})
 	}
 
@@ -450,7 +527,7 @@ func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) [
 		}
 		p.ExpectedPoints = SimpleExpectedPoints(
 			p.Position, p.XGPer90, p.XAPer90, p.XGCPer90,
-			p.CSRate, p.PPG, p.Availability, expectedMins, sp.fixtureAdj,
+			p.CSRate, p.PPG, p.Availability, expectedMins, sp.fixtureAdj, 0,
 		)
 
 		fixtures, _ := s.repo.GetUpcomingFixtures(p.TeamID, currentGW, 3)
@@ -466,7 +543,7 @@ func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) [
 			}
 			p.ExpectedPointsMultiGW = MultiGWExpectedPoints(
 				p.Position, p.XGPer90, p.XAPer90, p.CSRate, p.PPG,
-				p.Availability, expectedMins, fwdList,
+				p.Availability, expectedMins, fwdList, 0,
 			)
 		} else {
 			discountTotal := 1.0 + math.Pow(14.0/15.0, 1) + math.Pow(14.0/15.0, 2)
@@ -525,4 +602,168 @@ func (s *Service) SuggestSeasonStartSquad() (*OptimizedSquad, error) {
 		float64(squad.TotalCost)/10.0, float64(squad.Bank)/10.0)
 
 	return squad, nil
+}
+
+// BuildInitialSquad builds an initial 15-player squad for season start or mid-season reset.
+// Strategy differs by context:
+//   - New season (cold start): scores based on last 20 games across seasons,
+//     with prior seasons phased out over the first 20 current gameweeks.
+//   - Mid-season: scores based on last 2 complete seasons as stable baseline
+//     blended 50/50 with current-season weighted stats.
+func (s *Service) BuildInitialSquad() (*OptimizedSquad, error) {
+	players, err := s.repo.GetActivePlayersWithExpected(0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load players: %w", err)
+	}
+
+	currentGW, _ := s.repo.GetCurrentGameweek()
+	if currentGW == 0 {
+		currentGW = 1
+	}
+
+	isColdStart, _ := s.repo.IsColdStart(3)
+	hasSeasonData, _ := s.repo.HasSeasonData()
+	isNewSeason := isColdStart && hasSeasonData
+
+	log.Printf("BuildInitialSquad: newSeason=%v, %d players, currentGW=%d", isNewSeason, len(players), currentGW)
+	scored := s.scoreForInitSquad(players, currentGW, isNewSeason)
+
+	constraints := DefaultSquadConstraints()
+
+	starterQuality := FilterPlayersByMinutes(scored, 1500)
+	log.Printf("Scored: %d total, %d starter-quality (>=1500 mins)", len(scored), len(starterQuality))
+
+	squad := OptimizeSeasonStartSquad(starterQuality, scored, constraints)
+	if squad == nil {
+		return nil, fmt.Errorf("could not build a valid squad with the given constraints")
+	}
+
+	log.Printf("Best squad: %s, Starter EP: %.2f, Team EP: %.2f, Cost: £%.1fM, Bank: £%.1fM",
+		squad.Formation(), squad.Starting11EP(), squad.TeamEP,
+		float64(squad.TotalCost)/10.0, float64(squad.Bank)/10.0)
+
+	return squad, nil
+}
+
+func (s *Service) scoreForInitSquad(players []models.PlayerScore, currentGW int, isNewSeason bool) []models.PlayerScore {
+	regPriorMins := 1500.0
+
+	type scoredPlayer struct {
+		index      int
+		stats      *database.PlayerHistoryStats
+		fixtureAdj float64
+	}
+	var scoredList []scoredPlayer
+
+	for i := range players {
+		stats, err := s.repo.GetPlayerInitSquadStats(players[i].PlayerID, isNewSeason)
+		if err != nil || stats == nil || stats.Games == 0 {
+			continue
+		}
+
+		fixtureAdj := 1.0
+		fixtureDifficulty := 3
+		if s.teamModel != nil {
+			fixture, err := s.repo.GetNextFixture(players[i].TeamID, currentGW)
+			if err == nil && fixture != nil {
+				fixtureAdj = FixtureDifficultyMultiplier(fixture.Difficulty)
+				fixtureDifficulty = fixture.Difficulty
+			}
+		}
+
+		ScorePlayer(&players[i], stats, s.teamModel, fixtureAdj, fixtureDifficulty)
+		scoredList = append(scoredList, scoredPlayer{index: i, stats: stats, fixtureAdj: fixtureAdj})
+	}
+
+	type posAvg struct {
+		xg90Sum, xa90Sum, csSum, ppgSum float64
+		totalMins                         int
+		count                             int
+	}
+	posAvgs := map[int]*posAvg{}
+	for _, sp := range scoredList {
+		p := &players[sp.index]
+		st := sp.stats
+		pos := p.Position
+		if posAvgs[pos] == nil {
+			posAvgs[pos] = &posAvg{}
+		}
+		pa := posAvgs[pos]
+		pa.xg90Sum += p.XGPer90
+		pa.xa90Sum += p.XAPer90
+		pa.csSum += p.CSRate
+		pa.ppgSum += p.PPG
+		pa.totalMins += st.Minutes
+		pa.count++
+	}
+
+	for _, sp := range scoredList {
+		p := &players[sp.index]
+		st := sp.stats
+		pa := posAvgs[p.Position]
+		if pa == nil || pa.count == 0 {
+			continue
+		}
+
+		avgXG90 := pa.xg90Sum / float64(pa.count)
+		avgXA90 := pa.xa90Sum / float64(pa.count)
+		avgCSRate := pa.csSum / float64(pa.count)
+		avgPPG := pa.ppgSum / float64(pa.count)
+
+		weight := float64(st.Minutes) / (float64(st.Minutes) + regPriorMins)
+
+		p.XGPer90 = avgXG90 + (p.XGPer90-avgXG90)*weight
+		p.XAPer90 = avgXA90 + (p.XAPer90-avgXA90)*weight
+		p.CSRate = avgCSRate + (p.CSRate-avgCSRate)*weight
+		p.PPG = avgPPG + (p.PPG-avgPPG)*weight
+
+		expectedMins := 90.0
+		if p.Minutes > 0 && p.Games > 0 {
+			expectedMins = float64(p.Minutes) / float64(p.Games)
+		}
+		if expectedMins > 90 {
+			expectedMins = 90
+		}
+		p.ExpectedPoints = SimpleExpectedPoints(
+			p.Position, p.XGPer90, p.XAPer90, p.XGCPer90,
+			p.CSRate, p.PPG, p.Availability, expectedMins, sp.fixtureAdj, 0,
+		)
+
+		fixtures, _ := s.repo.GetUpcomingFixtures(p.TeamID, currentGW, 3)
+		if len(fixtures) > 0 {
+			var fwdList []FixtureWithDifficulty
+			for j, f := range fixtures {
+				fwdList = append(fwdList, FixtureWithDifficulty{
+					Gameweek:   f.Gameweek,
+					IsHome:     f.IsHome,
+					Difficulty: f.Difficulty,
+					GamesAhead: j,
+				})
+			}
+			p.ExpectedPointsMultiGW = MultiGWExpectedPoints(
+				p.Position, p.XGPer90, p.XAPer90, p.CSRate, p.PPG,
+				p.Availability, expectedMins, fwdList, 0,
+			)
+		} else {
+			discountTotal := 1.0 + math.Pow(14.0/15.0, 1) + math.Pow(14.0/15.0, 2)
+			p.ExpectedPointsMultiGW = p.ExpectedPoints * discountTotal
+		}
+	}
+
+	maxTP := map[int]int{}
+	for _, sp := range scoredList {
+		p := &players[sp.index]
+		if p.TotalPoints > maxTP[p.Position] {
+			maxTP[p.Position] = p.TotalPoints
+		}
+	}
+	for _, sp := range scoredList {
+		p := &players[sp.index]
+		if maxTP[p.Position] > 0 {
+			normTP := float64(p.TotalPoints) / float64(maxTP[p.Position])
+			p.ExpectedPointsMultiGW *= (0.6 + 0.4*normTP)
+		}
+	}
+
+	return players
 }

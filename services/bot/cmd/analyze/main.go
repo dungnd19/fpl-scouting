@@ -15,7 +15,7 @@ import (
 func main() {
 	dbPath := flag.String("db", "/tmp/fpl_check.db", "Path to fpl.db")
 	userID := flag.String("user", "default", "User ID")
-	mode := flag.String("mode", "suggest", "Mode: suggest, startsquad")
+	mode := flag.String("mode", "suggest", "Mode: suggest, startsquad, initsquad")
 	minStarterMins := flag.Int("min-starter-mins", 1500, "Min minutes for starting 11")
 	minBenchMins := flag.Int("min-bench-mins", 700, "Min minutes for bench")
 	flag.Parse()
@@ -37,6 +37,11 @@ func main() {
 
 	if *mode == "startsquad" {
 		printSeasonStartSquad(svc, *minStarterMins, *minBenchMins)
+		return
+	}
+
+	if *mode == "initsquad" {
+		printInitSquad(svc)
 		return
 	}
 
@@ -89,6 +94,27 @@ func printSeasonStartSquad(svc *analyzer.Service, minStarterMins, minBenchMins i
 		squad.TeamEPValue(), float64(squad.TotalCost)/10.0, float64(squad.Bank)/10.0)
 	fmt.Printf("║  Min starter mins: %d  Min bench mins: %d                 ║\n",
 		minStarterMins, minBenchMins)
+	fmt.Println("╚══════════════════════════════════════════════════════════════╝")
+
+	printSquad("GOALKEEPERS", squad.Goalkeepers)
+	printSquad("DEFENDERS", squad.Defenders)
+	printSquad("MIDFIELDERS", squad.Midfielders)
+	printSquad("FORWARDS", squad.Forwards)
+}
+
+func printInitSquad(svc *analyzer.Service) {
+	squad, err := svc.BuildInitialSquad()
+	if err != nil {
+		log.Fatalf("Init squad failed: %v", err)
+	}
+
+	fmt.Println("\n╔══════════════════════════════════════════════════════════════╗")
+	fmt.Println("║     FPL Scouting — Initial Squad (Build)                    ║")
+	fmt.Println("╠══════════════════════════════════════════════════════════════╣")
+	fmt.Printf("║  Formation: %-12s Starter EP: %8.2f                    ║\n",
+		squad.Formation(), squad.Starting11EP())
+	fmt.Printf("║  Team EP: %10.2f  Cost: £%6.1fM  Bank: £%6.1fM          ║\n",
+		squad.TeamEPValue(), float64(squad.TotalCost)/10.0, float64(squad.Bank)/10.0)
 	fmt.Println("╚══════════════════════════════════════════════════════════════╝")
 
 	printSquad("GOALKEEPERS", squad.Goalkeepers)
@@ -172,7 +198,7 @@ func getTopPlayersForPosition(repo *database.Repository, svc *analyzer.Service, 
 			continue
 		}
 
-		analyzer.ScorePlayer(&p, stats, nil, 1.0)
+		analyzer.ScorePlayer(&p, stats, nil, 1.0, 3)
 
 		fixtures, _ := repo.GetUpcomingFixtures(p.TeamID, currentGW, 3)
 		var fwdList []analyzer.FixtureWithDifficulty
@@ -191,12 +217,12 @@ func getTopPlayersForPosition(repo *database.Repository, svc *analyzer.Service, 
 		}
 		p.ExpectedPoints = analyzer.SimpleExpectedPoints(
 			p.Position, p.XGPer90, p.XAPer90, p.XGCPer90, p.CSRate, p.PPG,
-			p.Availability, expectedMins, 1.0,
+			p.Availability, expectedMins, 1.0, 0,
 		)
 		if len(fwdList) > 0 {
 			p.ExpectedPointsMultiGW = analyzer.MultiGWExpectedPoints(
 				p.Position, p.XGPer90, p.XAPer90, p.CSRate, p.PPG,
-				p.Availability, expectedMins, fwdList,
+				p.Availability, expectedMins, fwdList, 0,
 			)
 		}
 

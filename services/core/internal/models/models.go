@@ -93,10 +93,13 @@ type HistoryEntry struct {
 	TransfersBalance         int    `json:"transfers_balance"`
 	TransfersIn              int    `json:"transfers_in"`
 	TransfersOut             int    `json:"transfers_out"`
-	ExpectedGoals            string `json:"expected_goals"`
-	ExpectedAssists          string `json:"expected_assists"`
-	ExpectedGoalInvolvements string `json:"expected_goal_involvements"`
-	ExpectedGoalsConceded    string `json:"expected_goals_conceded"`
+	ExpectedGoals                 string `json:"expected_goals"`
+	ExpectedAssists               string `json:"expected_assists"`
+	ExpectedGoalInvolvements      string `json:"expected_goal_involvements"`
+	ExpectedGoalsConceded         string `json:"expected_goals_conceded"`
+	ClearancesBlocksInterceptions int    `json:"clearances_blocks_interceptions"`
+	Tackles                       int    `json:"tackles"`
+	Recoveries                    int    `json:"recoveries"`
 }
 
 // ElementSummary represents the response from element-summary API

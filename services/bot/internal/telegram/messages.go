@@ -50,12 +50,48 @@ func FormatTime(timeStr string) string {
 	return t.Format("2006-01-02 15:04")
 }
 
+// FormatInitSquad formats an optimized 15-player squad for Telegram
+func FormatInitSquad(squad *analyzer.OptimizedSquad) string {
+	var b strings.Builder
+
+	b.WriteString(fmt.Sprintf("*Initial Squad* (%s)\n", squad.Formation()))
+	b.WriteString(fmt.Sprintf("Budget: £%.1fM | Bank: £%.1fM | EP: %.1f\n\n",
+		float64(squad.TotalCost)/10.0, float64(squad.Bank)/10.0, squad.Starting11EP()))
+
+	formatGroup := func(label string, slots []analyzer.SquadSlot) {
+		if len(slots) == 0 {
+			return
+		}
+		b.WriteString(fmt.Sprintf("*%s*\n", label))
+		for _, s := range slots {
+			prefix := "  "
+			if s.IsStarter {
+				prefix = "▶ "
+			} else {
+				prefix = "  B "
+			}
+			b.WriteString(fmt.Sprintf("%s%-20s %-4s £%4.1fm  EP: %5.2f\n",
+				prefix, s.Player.WebName, s.Player.TeamName,
+				float64(s.Player.NowCost)/10.0, s.Player.OverallScore))
+		}
+		b.WriteString("\n")
+	}
+
+	formatGroup("GOALKEEPERS", squad.Goalkeepers)
+	formatGroup("DEFENDERS", squad.Defenders)
+	formatGroup("MIDFIELDERS", squad.Midfielders)
+	formatGroup("FORWARDS", squad.Forwards)
+
+	return b.String()
+}
+
 // WelcomeMessage returns the welcome message
 func WelcomeMessage() string {
 	return "Welcome to FPL Scouting Bot!\n\n" +
 		"Commands:\n" +
 		"/myteam - Show your current squad\n" +
 		"/suggest - Analyze squad & suggest transfers\n" +
+		"/startsquad - Build initial 15-player squad\n" +
 		"/report - Top 5 per position (5/10 GW & season)\n" +
 		"/recommendations - View pending recommendations\n" +
 		"/status - System status"

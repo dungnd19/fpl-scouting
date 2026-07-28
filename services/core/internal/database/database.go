@@ -52,6 +52,12 @@ func New(cfg Config) (*DB, error) {
 		}
 	}
 
+	// Run migrations for backwards compat (v2: added DEFCON columns)
+	if err := runMigrations(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to run migrations: %w", err)
+	}
+
 	// Test connection
 	if err := db.Ping(); err != nil {
 		db.Close()
@@ -72,6 +78,20 @@ func executeSchema(db *sql.DB, path string) error {
 		return fmt.Errorf("failed to execute schema: %w", err)
 	}
 
+	return nil
+}
+
+// runMigrations applies backwards-compatible schema changes.
+func runMigrations(db *sql.DB) error {
+	// v2: add DEFCON columns to player_history (added 2026-07)
+	migrations := []string{
+		"ALTER TABLE player_history ADD COLUMN clearances_blocks_interceptions INTEGER DEFAULT 0",
+		"ALTER TABLE player_history ADD COLUMN tackles INTEGER DEFAULT 0",
+		"ALTER TABLE player_history ADD COLUMN recoveries INTEGER DEFAULT 0",
+	}
+	for _, m := range migrations {
+		db.Exec(m) // ignore errors (column already exists)
+	}
 	return nil
 }
 

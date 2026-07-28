@@ -331,6 +331,9 @@ type PlayerHistoryStats struct {
 	Goals     int
 	Assists   int
 	TeamGoals int
+	CBIT      int
+	Tackles   int
+	Recoveries int
 }
 
 // PHASE 1: Weighted stats with exponential time decay.
@@ -364,7 +367,9 @@ func (r *Repository) GetPlayerWeightedRecentStats(playerID int, numGames int) (*
 		SELECT event, minutes, total_points,
 			CAST(expected_goals AS REAL), CAST(expected_assists AS REAL),
 			CAST(expected_goal_involvements AS REAL), CAST(expected_goals_conceded AS REAL),
-			clean_sheets, goals_scored, assists
+			clean_sheets, goals_scored, assists,
+			COALESCE(clearances_blocks_interceptions,0),
+			COALESCE(tackles,0), COALESCE(recoveries,0)
 		FROM player_history
 		WHERE player_id = ? AND minutes > 0
 		ORDER BY event DESC
@@ -381,8 +386,9 @@ func (r *Repository) GetPlayerWeightedRecentStats(playerID int, numGames int) (*
 	for rows.Next() {
 		var event, minutes, points, cs, goals, assists int
 		var xg, xa, xgi, xgc float64
+		var cbit, tackles, recoveries int
 
-		if err := rows.Scan(&event, &minutes, &points, &xg, &xa, &xgi, &xgc, &cs, &goals, &assists); err != nil {
+		if err := rows.Scan(&event, &minutes, &points, &xg, &xa, &xgi, &xgc, &cs, &goals, &assists, &cbit, &tackles, &recoveries); err != nil {
 			return nil, err
 		}
 
@@ -398,6 +404,9 @@ func (r *Repository) GetPlayerWeightedRecentStats(playerID int, numGames int) (*
 		s.CS += int(float64(cs) * weight)
 		s.Goals += int(float64(goals) * weight)
 		s.Assists += int(float64(assists) * weight)
+		s.CBIT += int(float64(cbit) * weight)
+		s.Tackles += int(float64(tackles) * weight)
+		s.Recoveries += int(float64(recoveries) * weight)
 	}
 
 	return &s, rows.Err()
@@ -414,6 +423,9 @@ func (r *Repository) GetPlayerRecentStats(playerID int, numGames int) (*PlayerHi
 			COALESCE(SUM(CAST(expected_goals_conceded AS REAL)),0),
 			COALESCE(SUM(clean_sheets),0),
 			COALESCE(SUM(goals_scored),0), COALESCE(SUM(assists),0),
+			COALESCE(SUM(COALESCE(clearances_blocks_interceptions,0)),0),
+			COALESCE(SUM(COALESCE(tackles,0)),0),
+			COALESCE(SUM(COALESCE(recoveries,0)),0),
 			0, 0, 0
 		FROM (
 			SELECT * FROM player_history
@@ -425,7 +437,7 @@ func (r *Repository) GetPlayerRecentStats(playerID int, numGames int) (*PlayerHi
 
 	var s PlayerHistoryStats
 	err := row.Scan(&s.Games, &s.Minutes, &s.Points, &s.XG, &s.XA, &s.XGI, &s.XGC, &s.CS,
-		&s.Goals, &s.Assists, &s.TeamGoals)
+		&s.Goals, &s.Assists, &s.CBIT, &s.Tackles, &s.Recoveries, &s.TeamGoals)
 	if err != nil {
 		return nil, err
 	}
@@ -442,6 +454,9 @@ func (r *Repository) GetPlayerSeasonStats(playerID int) (*PlayerHistoryStats, er
 			COALESCE(SUM(CAST(expected_goals_conceded AS REAL)),0),
 			COALESCE(SUM(clean_sheets),0),
 			COALESCE(SUM(goals_scored),0), COALESCE(SUM(assists),0),
+			COALESCE(SUM(COALESCE(clearances_blocks_interceptions,0)),0),
+			COALESCE(SUM(COALESCE(tackles,0)),0),
+			COALESCE(SUM(COALESCE(recoveries,0)),0),
 			0, 0, 0
 		FROM player_history
 		WHERE player_id = ? AND minutes > 0
@@ -449,7 +464,7 @@ func (r *Repository) GetPlayerSeasonStats(playerID int) (*PlayerHistoryStats, er
 
 	var s PlayerHistoryStats
 	err := row.Scan(&s.Games, &s.Minutes, &s.Points, &s.XG, &s.XA, &s.XGI, &s.XGC, &s.CS,
-		&s.Goals, &s.Assists, &s.TeamGoals)
+		&s.Goals, &s.Assists, &s.CBIT, &s.Tackles, &s.Recoveries, &s.TeamGoals)
 	if err != nil {
 		return nil, err
 	}
@@ -674,6 +689,9 @@ func (r *Repository) GetPlayerHistoryForGW(playerID int, gw int) (*PlayerHistory
 			COALESCE(CAST(expected_goals_conceded AS REAL),0),
 			COALESCE(clean_sheets,0),
 			COALESCE(goals_scored,0), COALESCE(assists,0),
+			COALESCE(COALESCE(clearances_blocks_interceptions,0),0),
+			COALESCE(COALESCE(tackles,0),0),
+			COALESCE(COALESCE(recoveries,0),0),
 			0, 0, 0
 		FROM player_history
 		WHERE player_id = ? AND event = ?
@@ -681,7 +699,7 @@ func (r *Repository) GetPlayerHistoryForGW(playerID int, gw int) (*PlayerHistory
 
 	var s PlayerHistoryStats
 	err := row.Scan(&s.Games, &s.Minutes, &s.Points, &s.XG, &s.XA, &s.XGI, &s.XGC, &s.CS,
-		&s.Goals, &s.Assists, &s.TeamGoals)
+		&s.Goals, &s.Assists, &s.CBIT, &s.Tackles, &s.Recoveries, &s.TeamGoals)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
@@ -780,6 +798,61 @@ func RoundFloat(val float64, precision int) float64 {
 // Older seasons (2023-24, 2022-23) are ignored as too stale.
 func (r *Repository) GetPlayerMultiSeasonBlendedStats(playerID int, numRecentGames int) (*PlayerHistoryStats, error) {
 	return r.blendStatsN(playerID, numRecentGames, 2, 1000)
+}
+
+// GetPlayerInitSquadStats blends current stats with prior seasons for initial-squad building.
+// isNewSeason controls the blend strategy:
+//   - New season: priorRatio phases out linearly over 20 games (100% prior → 0% prior)
+//     This approximates "last 20 games regardless of season" when current data is sparse.
+//   - Mid-season: fixed 50/50 blend with 2 prior seasons as stable baseline.
+func (r *Repository) GetPlayerInitSquadStats(playerID int, isNewSeason bool) (*PlayerHistoryStats, error) {
+	currentStats, _ := r.GetPlayerWeightedRecentStats(playerID, 20)
+	priorNames := r.getCrossSeasonNames(playerID)
+
+	if len(priorNames) == 0 {
+		return currentStats, nil
+	}
+
+	priorStats, err := r.getPriorSeasonStatsN(priorNames, 2)
+	if err != nil || priorStats == nil || priorStats.Games == 0 || priorStats.Minutes < 1000 {
+		return currentStats, nil
+	}
+
+	currentGames := 0
+	if currentStats != nil {
+		currentGames = currentStats.Games
+	}
+
+	var priorRatio float64
+	if isNewSeason {
+		priorRatio = 1.0 - float64(currentGames)/20.0
+		if priorRatio < 0 {
+			priorRatio = 0
+		}
+	} else {
+		priorRatio = 0.5
+	}
+	currentRatio := 1.0 - priorRatio
+
+	if currentStats == nil {
+		return priorStats, nil
+	}
+
+	blended := &PlayerHistoryStats{
+		Games:     int(float64(currentStats.Games)*currentRatio + float64(priorStats.Games)*priorRatio),
+		Minutes:   int(float64(currentStats.Minutes)*currentRatio + float64(priorStats.Minutes)*priorRatio),
+		Points:    int(float64(currentStats.Points)*currentRatio + float64(priorStats.Points)*priorRatio),
+		XG:        currentStats.XG*currentRatio + priorStats.XG*priorRatio,
+		XA:        currentStats.XA*currentRatio + priorStats.XA*priorRatio,
+		XGI:       currentStats.XGI*currentRatio + priorStats.XGI*priorRatio,
+		XGC:       currentStats.XGC*currentRatio + priorStats.XGC*priorRatio,
+		CS:        int(float64(currentStats.CS)*currentRatio + float64(priorStats.CS)*priorRatio),
+		Goals:     int(float64(currentStats.Goals)*currentRatio + float64(priorStats.Goals)*priorRatio),
+		Assists:   int(float64(currentStats.Assists)*currentRatio + float64(priorStats.Assists)*priorRatio),
+		TeamGoals: currentStats.TeamGoals,
+	}
+
+	return blended, nil
 }
 
 // blendStatsN blends using only the N most recent prior seasons, requiring minMins total.

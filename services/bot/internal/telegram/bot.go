@@ -48,6 +48,7 @@ func (b *Bot) Start() error {
 	commands := []tgbotapi.BotCommand{
 		{Command: "myteam", Description: "Show your current squad"},
 		{Command: "suggest", Description: "Analyze squad & suggest transfers"},
+		{Command: "startsquad", Description: "Build initial 15-player squad"},
 		{Command: "report", Description: "Top 5 per position (5/10 GW & season)"},
 		{Command: "recommendations", Description: "View pending recommendations"},
 		{Command: "status", Description: "System status"},
@@ -95,6 +96,8 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		b.handleMyTeam(message)
 	case strings.HasPrefix(message.Text, "/suggest"):
 		b.handleSuggest(message)
+	case strings.HasPrefix(message.Text, "/startsquad"):
+		b.handleStartSquad(message)
 	case strings.HasPrefix(message.Text, "/report"):
 		b.handleReport(message)
 	case strings.HasPrefix(message.Text, "/recommendations"):
@@ -169,6 +172,26 @@ func (b *Bot) handleSuggest(message *tgbotapi.Message) {
 
 	for _, rec := range recs {
 		b.sendRecommendation(message.Chat.ID, rec)
+	}
+}
+
+// handleStartSquad builds and sends an initial 15-player squad.
+func (b *Bot) handleStartSquad(message *tgbotapi.Message) {
+	thinking := tgbotapi.NewMessage(message.Chat.ID, "Building initial squad (this may take a minute)...")
+	b.api.Send(thinking)
+
+	squad, err := b.analyzer.BuildInitialSquad()
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Squad build failed: %s", err.Error()))
+		b.api.Send(msg)
+		return
+	}
+
+	text := FormatInitSquad(squad)
+	msg := tgbotapi.NewMessage(message.Chat.ID, text)
+	msg.ParseMode = "Markdown"
+	if _, err := b.api.Send(msg); err != nil {
+		log.Printf("Failed to send squad: %v", err)
 	}
 }
 

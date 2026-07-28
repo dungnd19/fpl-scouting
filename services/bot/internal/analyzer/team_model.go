@@ -136,8 +136,11 @@ func FixtureDifficultyMultiplier(difficulty int) float64 {
 
 // FixtureAdjustedDefensiveScore adjusts the defensive xGC component using fixture difficulty.
 // For defenders/GKs, playing a hard fixture reduces the clean sheet bonus expectation.
-func FixtureAdjustedDefensiveScore(xGCPer90 float64, fixtureDifficulty float64) float64 {
-	adjXGC := xGCPer90 * (1.0 + (fixtureDifficulty-3.0)*0.15)
+func FixtureAdjustedDefensiveScore(xGCPer90 float64, difficulty int) float64 {
+	if difficulty <= 0 {
+		difficulty = 3
+	}
+	adjXGC := xGCPer90 * (1.0 + (float64(difficulty)-3.0)*0.15)
 	if adjXGC < 0 {
 		adjXGC = 0
 	}

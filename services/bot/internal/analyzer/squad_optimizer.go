@@ -129,7 +129,7 @@ func OptimizeSquadBest(players []models.PlayerScore, constraints SquadConstraint
 	bestEP := -1.0
 	var best *OptimizedSquad
 
-	for benchR := 200; benchR >= 120; benchR -= 10 {
+	for benchR := 200; benchR >= 30; benchR -= 10 {
 		squad := OptimizeSquadWithBenchReserve(players, constraints, benchR)
 		if squad == nil {
 			continue
@@ -152,45 +152,23 @@ func OptimizeSquadMultiRun(players []models.PlayerScore, constraints SquadConstr
 }
 
 func tryFormation(byPos map[int][]models.PlayerScore, c SquadConstraints, defN, midN, fwdN int, benchReserve int) *OptimizedSquad {
-	starterBudget := c.Budget100k - benchReserve
 	picked := map[int]bool{}
 	teamCnt := map[int]int{}
 	squad := &OptimizedSquad{}
 	cost := 0
 
-	// Fill starters: FWD first (premium priority), then MID, DEF, GK
-	for _, spec := range [][2]int{{4, fwdN}, {3, midN}, {2, defN}, {1, 1}} {
-		pos, n := spec[0], spec[1]
-		slotList := squad.slotListForPos(pos)
-		for _, p := range byPos[pos] {
-			if len(*slotList) >= n {
-				break
-			}
-			if picked[p.PlayerID] {
-				continue
-			}
-			if teamCnt[p.TeamID] >= c.MaxPerTeam {
-				continue
-			}
-			if cost+p.NowCost > starterBudget {
-				continue
-			}
-			picked[p.PlayerID] = true
-			teamCnt[p.TeamID]++
-			cost += p.NowCost
-			*slotList = append(*slotList, SquadSlot{Player: p, IsStarter: true})
+	// 1. Fill bench first with cheapest per position (FWD→MID→DEF→GK, most expensive first)
+	benchNeeded := map[int]int{
+		1: c.NumGK - 1,
+		2: c.NumDEF - defN,
+		3: c.NumMID - midN,
+		4: c.NumFWD - fwdN,
+	}
+
+	for _, pos := range []int{4, 3, 2, 1} {
+		if benchNeeded[pos] <= 0 {
+			continue
 		}
-	}
-
-	// Verify all required starters filled
-	if len(squad.Goalkeepers) < 1 || len(squad.Defenders) < defN ||
-		len(squad.Midfielders) < midN || len(squad.Forwards) < fwdN {
-		return nil
-	}
-
-	// Fill bench with cheapest available that fit remaining budget
-	remainingBudget := c.Budget100k - cost
-	fillBench := func(pos int, needed int) {
 		slotList := squad.slotListForPos(pos)
 		cheapest := make([]models.PlayerScore, len(byPos[pos]))
 		copy(cheapest, byPos[pos])
@@ -198,31 +176,77 @@ func tryFormation(byPos map[int][]models.PlayerScore, c SquadConstraints, defN, 
 			return cheapest[i].NowCost < cheapest[j].NowCost
 		})
 		for _, p := range cheapest {
-			if needed <= 0 {
+			if benchNeeded[pos] <= 0 {
 				break
 			}
-			if picked[p.PlayerID] {
+			if picked[p.PlayerID] || teamCnt[p.TeamID] >= c.MaxPerTeam {
 				continue
 			}
-			if teamCnt[p.TeamID] >= c.MaxPerTeam {
-				continue
-			}
-			if remainingBudget < p.NowCost {
+			if cost+p.NowCost > c.Budget100k {
 				continue
 			}
 			picked[p.PlayerID] = true
 			teamCnt[p.TeamID]++
-			remainingBudget -= p.NowCost
 			cost += p.NowCost
 			*slotList = append(*slotList, SquadSlot{Player: p, IsStarter: false})
-			needed--
+			benchNeeded[pos]--
+		}
+		if benchNeeded[pos] > 0 {
+			return nil
 		}
 	}
 
-	fillBench(1, c.NumGK-len(squad.Goalkeepers))
-	fillBench(2, c.NumDEF-len(squad.Defenders))
-	fillBench(3, c.NumMID-len(squad.Midfielders))
-	fillBench(4, c.NumFWD-len(squad.Forwards))
+	// 2. Fill starters with remaining budget, interleaved value-based across positions
+	needed := map[int]int{1: 1, 2: defN, 3: midN, 4: fwdN}
+	posIdx := map[int]int{1: 0, 2: 0, 3: 0, 4: 0}
+
+	for {
+		bestPos := -1
+		bestVal := -1.0
+		bestPlayer := models.PlayerScore{}
+		bestIdx := -1
+
+		for _, pos := range []int{1, 2, 3, 4} {
+			if needed[pos] <= 0 {
+				continue
+			}
+			for idx := posIdx[pos]; idx < len(byPos[pos]); idx++ {
+				p := byPos[pos][idx]
+				if picked[p.PlayerID] || teamCnt[p.TeamID] >= c.MaxPerTeam {
+					continue
+				}
+				if cost+p.NowCost > c.Budget100k {
+					continue
+				}
+				val := p.OverallScore / float64(p.NowCost)
+				if val > bestVal {
+					bestVal = val
+					bestPos = pos
+					bestPlayer = p
+					bestIdx = idx
+				}
+				break
+			}
+		}
+
+		if bestPos < 0 {
+			break
+		}
+
+		picked[bestPlayer.PlayerID] = true
+		teamCnt[bestPlayer.TeamID]++
+		cost += bestPlayer.NowCost
+		needed[bestPos]--
+
+		slotList := squad.slotListForPos(bestPos)
+		*slotList = append(*slotList, SquadSlot{Player: bestPlayer, IsStarter: true})
+		posIdx[bestPos] = bestIdx + 1
+	}
+
+	if len(squad.Goalkeepers) < 1 || len(squad.Defenders) < defN ||
+		len(squad.Midfielders) < midN || len(squad.Forwards) < fwdN {
+		return nil
+	}
 
 	return squad
 }
@@ -343,99 +367,108 @@ func tryFormationSeasonStart(
 	defN, midN, fwdN int,
 	benchReserve int,
 ) *OptimizedSquad {
-	starterBudget := c.Budget100k - benchReserve
 	picked := map[int]bool{}
 	teamCnt := map[int]int{}
 	squad := &OptimizedSquad{}
 	cost := 0
 
-	fillOrder := [][2]int{{4, fwdN}, {3, midN}, {2, defN}, {1, 1}}
-	for _, spec := range fillOrder {
-		pos, n := spec[0], spec[1]
+	// 1. Fill bench first with cheapest + minute-qualified per position
+	benchNeeded := map[int]int{
+		1: c.NumGK - 1,
+		2: c.NumDEF - defN,
+		3: c.NumMID - midN,
+		4: c.NumFWD - fwdN,
+	}
+
+	for _, pos := range []int{4, 3, 2, 1} {
+		if benchNeeded[pos] <= 0 {
+			continue
+		}
 		slotList := squad.slotListForPos(pos)
-		for _, p := range startersByPos[pos] {
-			if len(*slotList) >= n {
+		cheapest := make([]models.PlayerScore, len(benchByPos[pos]))
+		copy(cheapest, benchByPos[pos])
+		sort.Slice(cheapest, func(i, j int) bool {
+			return cheapest[i].NowCost < cheapest[j].NowCost
+		})
+		for _, p := range cheapest {
+			if benchNeeded[pos] <= 0 {
 				break
 			}
-			if picked[p.PlayerID] {
+			if picked[p.PlayerID] || teamCnt[p.TeamID] >= c.MaxPerTeam {
 				continue
 			}
-			if teamCnt[p.TeamID] >= c.MaxPerTeam {
+			if p.Minutes < c.MinBenchMinutes {
 				continue
 			}
-			if cost+p.NowCost > starterBudget {
-				continue
-			}
-			if p.Minutes < c.MinStarterMinutes {
+			if cost+p.NowCost > c.Budget100k {
 				continue
 			}
 			picked[p.PlayerID] = true
 			teamCnt[p.TeamID]++
 			cost += p.NowCost
-			*slotList = append(*slotList, SquadSlot{Player: p, IsStarter: true})
+			*slotList = append(*slotList, SquadSlot{Player: p, IsStarter: false})
+			benchNeeded[pos]--
+		}
+		if benchNeeded[pos] > 0 {
+			return nil
+		}
+	}
+
+	// 2. Fill starters with remaining budget, interleaved value-based
+	needed := map[int]int{1: 1, 2: defN, 3: midN, 4: fwdN}
+	posIdx := map[int]int{1: 0, 2: 0, 3: 0, 4: 0}
+
+	for {
+		bestPos := -1
+		bestVal := -1.0
+		bestPlayer := models.PlayerScore{}
+		bestIdx := -1
+
+		for _, pos := range []int{1, 2, 3, 4} {
+			if needed[pos] <= 0 {
+				continue
+			}
+			pool := startersByPos[pos]
+			for idx := posIdx[pos]; idx < len(pool); idx++ {
+				p := pool[idx]
+				if picked[p.PlayerID] || teamCnt[p.TeamID] >= c.MaxPerTeam {
+					continue
+				}
+				if p.Minutes < c.MinStarterMinutes {
+					continue
+				}
+				if cost+p.NowCost > c.Budget100k {
+					continue
+				}
+				val := p.OverallScore / float64(p.NowCost)
+				if val > bestVal {
+					bestVal = val
+					bestPos = pos
+					bestPlayer = p
+					bestIdx = idx
+				}
+				break
+			}
 		}
 
+		if bestPos < 0 {
+			break
+		}
+
+		picked[bestPlayer.PlayerID] = true
+		teamCnt[bestPlayer.TeamID]++
+		cost += bestPlayer.NowCost
+		needed[bestPos]--
+
+		slotList := squad.slotListForPos(bestPos)
+		*slotList = append(*slotList, SquadSlot{Player: bestPlayer, IsStarter: true})
+		posIdx[bestPos] = bestIdx + 1
 	}
 
 	if len(squad.Goalkeepers) < 1 || len(squad.Defenders) < defN ||
 		len(squad.Midfielders) < midN || len(squad.Forwards) < fwdN {
 		return nil
 	}
-
-	remainingBudget := c.Budget100k - cost
-	benchNeeded := map[int]int{
-		1: c.NumGK - len(squad.Goalkeepers),
-		2: c.NumDEF - len(squad.Defenders),
-		3: c.NumMID - len(squad.Midfielders),
-		4: c.NumFWD - len(squad.Forwards),
-	}
-
-	fillBenchEP := func(pos int) {
-		slotList := squad.slotListForPos(pos)
-		candidates := make([]models.PlayerScore, len(benchByPos[pos]))
-		copy(candidates, benchByPos[pos])
-		sort.Slice(candidates, func(i, j int) bool {
-			vi := candidates[i].OverallScore / float64(candidates[i].NowCost)
-			vj := candidates[j].OverallScore / float64(candidates[j].NowCost)
-			return vi > vj
-		})
-		for _, p := range candidates {
-			if benchNeeded[pos] <= 0 {
-				break
-			}
-			if picked[p.PlayerID] {
-				continue
-			}
-			if p.Minutes < c.MinBenchMinutes {
-				continue
-			}
-			if teamCnt[p.TeamID] >= c.MaxPerTeam {
-				continue
-			}
-			if remainingBudget < p.NowCost {
-				continue
-			}
-			picked[p.PlayerID] = true
-			teamCnt[p.TeamID]++
-			remainingBudget -= p.NowCost
-			cost += p.NowCost
-			*slotList = append(*slotList, SquadSlot{Player: p, IsStarter: false})
-			benchNeeded[pos]--
-		}
-	}
-
-	fillBenchEP(4)
-	fillBenchEP(3)
-	fillBenchEP(2)
-	fillBenchEP(1)
-
-	for _, needed := range benchNeeded {
-		if needed > 0 {
-			return nil
-		}
-	}
-
-
 
 	squad.TotalCost = cost
 	squad.Bank = c.Budget100k - cost
@@ -495,7 +528,7 @@ func OptimizeSeasonStartSquad(
 	bestEP := -1.0
 	var best *OptimizedSquad
 
-	for benchR := 150; benchR >= 80; benchR -= 5 {
+	for benchR := 200; benchR >= 30; benchR -= 10 {
 		squad := OptimizeSeasonStartSquadWithReserve(starterQuality, allPlayers, constraints, benchR)
 		if squad == nil {
 			continue
