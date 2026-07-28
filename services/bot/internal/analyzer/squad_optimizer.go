@@ -392,7 +392,14 @@ func tryFormationSeasonStart(
 
 	fillBenchEP := func(pos int) {
 		slotList := squad.slotListForPos(pos)
-		for _, p := range benchByPos[pos] {
+		candidates := make([]models.PlayerScore, len(benchByPos[pos]))
+		copy(candidates, benchByPos[pos])
+		sort.Slice(candidates, func(i, j int) bool {
+			vi := candidates[i].OverallScore / float64(candidates[i].NowCost)
+			vj := candidates[j].OverallScore / float64(candidates[j].NowCost)
+			return vi > vj
+		})
+		for _, p := range candidates {
 			if benchNeeded[pos] <= 0 {
 				break
 			}
@@ -427,6 +434,8 @@ func tryFormationSeasonStart(
 			return nil
 		}
 	}
+
+
 
 	squad.TotalCost = cost
 	squad.Bank = c.Budget100k - cost
