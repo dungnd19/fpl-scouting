@@ -107,6 +107,20 @@ Value weighted at 4.0 (higher than raw xScore at 3.0) to surface underpriced per
 - `/recommendations` — View pending recommendations from previous analyses.
 - `/status` — System status (player count, last fetch time, pending recs).
 
+## Progress tracking (docs/)
+
+Three files under `docs/` track requirements and implementation state.
+**Update them whenever a step finishes — analysis or code, not just code —
+not just at the end of a whole task:**
+
+- `docs/requirement.md` — the requirement log. Append a new dated entry
+  whenever a prompt states or changes a requirement. Don't rewrite past
+  entries; mark them superseded instead.
+- `docs/plan.md` — code + test plan, one section per `requirement.md` entry.
+  Keep its checklist in sync with actual progress as steps complete.
+- `docs/info.md` — facts, not narrative: environment setup, deploy process,
+  server details. Overwrite stale entries in place rather than appending.
+
 ## Configuration
 
 Environment variables in `.env` (see `.env.example`):

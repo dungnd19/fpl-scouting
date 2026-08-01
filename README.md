@@ -55,6 +55,7 @@ Required in `.env`:
 ## Common commands
 
 ```bash
+make deploy          # git pull, rebuild, recreate containers
 make logs            # tail all logs
 make status           # container status + memory usage
 make fetch             # manually trigger an FPL data fetch
@@ -64,6 +65,18 @@ make db-copy                # copy the SQLite DB out for local inspection
 ```
 
 Run `make help` for the full list.
+
+## Deploying to a server
+
+SSH into the server, then from the repo directory:
+
+```bash
+make deploy
+```
+
+This pulls the latest commit, rebuilds only what changed, and recreates
+containers. fpl-core re-fetches from the FPL API a few seconds after every
+startup, so the database is current again without a separate step.
 
 ## Telegram commands
 

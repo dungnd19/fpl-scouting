@@ -1,4 +1,4 @@
-.PHONY: help build up down logs restart clean status fetch analyze shell-core shell-bot
+.PHONY: help build up down logs restart clean status fetch deploy shell-core shell-bot
 
 help:
 	@echo "FPL Scouting System - Available Commands:"
@@ -12,7 +12,7 @@ help:
 	@echo "  make logs-bot    - View logs from bot service"
 	@echo "  make status      - Show service status"
 	@echo "  make fetch       - Manually trigger data fetch"
-	@echo "  make analyze     - Manually trigger analysis"
+	@echo "  make deploy      - git pull, rebuild, and recreate containers (DB refetches on startup)"
 	@echo "  make clean       - Remove all containers and volumes"
 	@echo "  make shell-core  - Open shell in core container"
 	@echo "  make shell-bot   - Open shell in bot container"
@@ -49,8 +49,10 @@ status:
 fetch:
 	docker compose exec fpl-core /app/fpl-core -once -fetch
 
-analyze:
-	docker compose exec fpl-core /app/fpl-core -once -analyze
+deploy:
+	git pull
+	docker compose up -d --build
+	@echo "Deployed. fpl-core refetches on startup, so the DB will be current within seconds."
 
 clean:
 	docker compose down -v
