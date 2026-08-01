@@ -104,7 +104,6 @@ func FormatMyTeam(players []database.MyTeamPlayer, bank int) string {
 	b.WriteString(fmt.Sprintf("*Your Squad* (Bank: £%.1fm)\n", float64(bank)/10.0))
 
 	// Group: starting XI (pos 1-11) and bench (12-15)
-	posNames := map[int]string{1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
 	lastPos := 0
 
 	for i, p := range players {
@@ -114,7 +113,7 @@ func FormatMyTeam(players []database.MyTeamPlayer, bank int) string {
 		}
 
 		if p.Position != lastPos && i < 11 {
-			b.WriteString(fmt.Sprintf("\n*%s*\n", posNames[p.Position]))
+			b.WriteString(fmt.Sprintf("\n*%s*\n", models.PositionNames[p.Position]))
 			lastPos = p.Position
 		}
 
@@ -141,28 +140,13 @@ func FormatMyTeam(players []database.MyTeamPlayer, bank int) string {
 	return b.String()
 }
 
-// positionEmoji returns an emoji for a player position
-func positionEmoji(pos int) string {
-	switch pos {
-	case 1:
-		return "GK"
-	case 2:
-		return "DEF"
-	case 3:
-		return "MID"
-	case 4:
-		return "FWD"
-	}
-	return "?"
-}
-
 // FormatReport formats a top-5-per-position report for Telegram
 func FormatReport(title string, reports []analyzer.PositionReport) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("*%s*\n", title))
 
 	for _, pr := range reports {
-		posLabel := positionEmoji(pr.Position)
+		posLabel := models.PositionNames[pr.Position]
 		b.WriteString(fmt.Sprintf("\n*%s*\n", posLabel))
 
 		for i, p := range pr.Players {

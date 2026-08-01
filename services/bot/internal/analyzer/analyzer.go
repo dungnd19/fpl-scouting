@@ -476,8 +476,8 @@ func (s *Service) scoreAllPlayers(players []models.PlayerScore, currentGW int) [
 	// Compute position averages for regression
 	type posAvg struct {
 		xg90Sum, xa90Sum, csSum, ppgSum float64
-		totalMins                         int
-		count                             int
+		totalMins                       int
+		count                           int
 	}
 	posAvgs := map[int]*posAvg{}
 	for _, sp := range scoredList {
@@ -589,8 +589,22 @@ func (s *Service) SuggestSeasonStartSquad() (*OptimizedSquad, error) {
 	constraints := SeasonStartSquadConstraints()
 
 	starterQuality := FilterPlayersByMinutes(scored, constraints.MinStarterMinutes)
-	log.Printf("Scored: %d total, %d starter-quality (>=%d mins)",
-		len(scored), len(starterQuality), constraints.MinStarterMinutes)
+
+	scoredWithEPN := 0
+	for _, p := range starterQuality {
+		if p.ExpectedPointsMultiGW > 0 || p.ExpectedPoints > 0 {
+			scoredWithEPN++
+		}
+	}
+	log.Printf("Scored: %d total, %d starter-quality (>=%d mins), %d with EP>0",
+		len(scored), len(starterQuality), constraints.MinStarterMinutes, scoredWithEPN)
+
+	if scoredWithEPN < 20 {
+		return nil, fmt.Errorf(
+			"only %d players have expected points data (need >=20). "+
+				"Run 'docker compose exec fpl-core /app/fpl-core -once -seed-prior' to populate historical season data, "+
+				"then try again", scoredWithEPN)
+	}
 
 	squad := OptimizeSeasonStartSquad(starterQuality, scored, constraints)
 	if squad == nil {
@@ -611,7 +625,7 @@ func (s *Service) SuggestSeasonStartSquad() (*OptimizedSquad, error) {
 //   - Mid-season: scores based on last 2 complete seasons as stable baseline
 //     blended 50/50 with current-season weighted stats.
 func (s *Service) BuildInitialSquad() (*OptimizedSquad, error) {
-	players, err := s.repo.GetAllPlayers()
+	players, err := s.repo.GetActivePlayersWithExpected(0)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load players: %w", err)
 	}
@@ -626,12 +640,27 @@ func (s *Service) BuildInitialSquad() (*OptimizedSquad, error) {
 	isNewSeason := isColdStart && hasSeasonData
 
 	log.Printf("BuildInitialSquad: newSeason=%v, %d players, currentGW=%d", isNewSeason, len(players), currentGW)
-	scored := s.scoreForInitSquad(players, currentGW, isNewSeason)
+	scored, scoredCount := s.scoreForInitSquad(players, currentGW, isNewSeason)
 
 	constraints := DefaultSquadConstraints()
 
 	starterQuality := FilterPlayersByMinutes(scored, 1500)
-	log.Printf("Scored: %d total, %d starter-quality (>=1500 mins)", len(scored), len(starterQuality))
+
+	scoredWithEPN := 0
+	for _, p := range starterQuality {
+		if p.ExpectedPointsMultiGW > 0 || p.ExpectedPoints > 0 {
+			scoredWithEPN++
+		}
+	}
+	log.Printf("Scored: %d total, %d starter-quality (>=1500 mins), %d with EP>0 (scoredCount=%d)",
+		len(scored), len(starterQuality), scoredWithEPN, scoredCount)
+
+	if scoredWithEPN < 20 {
+		return nil, fmt.Errorf(
+			"only %d players have expected points data (need >=20). "+
+				"Run 'docker compose exec fpl-core /app/fpl-core -once -seed-prior' to populate historical season data, "+
+				"then try again", scoredWithEPN)
+	}
 
 	squad := OptimizeSeasonStartSquad(starterQuality, scored, constraints)
 	if squad == nil {
@@ -645,7 +674,7 @@ func (s *Service) BuildInitialSquad() (*OptimizedSquad, error) {
 	return squad, nil
 }
 
-func (s *Service) scoreForInitSquad(players []models.PlayerScore, currentGW int, isNewSeason bool) []models.PlayerScore {
+func (s *Service) scoreForInitSquad(players []models.PlayerScore, currentGW int, isNewSeason bool) ([]models.PlayerScore, int) {
 	regPriorMins := 1500.0
 
 	type scoredPlayer struct {
@@ -677,8 +706,8 @@ func (s *Service) scoreForInitSquad(players []models.PlayerScore, currentGW int,
 
 	type posAvg struct {
 		xg90Sum, xa90Sum, csSum, ppgSum float64
-		totalMins                         int
-		count                             int
+		totalMins                       int
+		count                           int
 	}
 	posAvgs := map[int]*posAvg{}
 	for _, sp := range scoredList {
@@ -765,5 +794,6 @@ func (s *Service) scoreForInitSquad(players []models.PlayerScore, currentGW int,
 		}
 	}
 
-	return players
+	log.Printf("InitSquad: %d/%d players scored with stats (isNewSeason=%v)", len(scoredList), len(players), isNewSeason)
+	return players, len(scoredList)
 }

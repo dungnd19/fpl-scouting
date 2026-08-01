@@ -274,50 +274,8 @@ func (r *Repository) GetMyTeamFull(userID string) ([]MyTeamPlayer, error) {
 	return players, rows.Err()
 }
 
-func (r *Repository) GetAllPlayers() ([]models.PlayerScore, error) {
-	rows, err := r.db.Query(`
-		SELECT
-			p.id, p.web_name, p.team, COALESCE(t.short_name, ''), p.element_type,
-			p.now_cost, p.total_points, p.minutes, p.status,
-			COALESCE(p.chance_of_playing_next_round, 100),
-			CAST(p.form AS REAL), CAST(p.points_per_game AS REAL)
-		FROM players p
-		LEFT JOIN teams t ON p.team = t.id
-		ORDER BY p.total_points DESC
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query players: %w", err)
-	}
-	defer rows.Close()
-
-	var players []models.PlayerScore
-	for rows.Next() {
-		var p models.PlayerScore
-		var status string
-		var avail int
-
-		err := rows.Scan(
-			&p.PlayerID, &p.WebName, &p.TeamID, &p.TeamName, &p.Position,
-			&p.NowCost, &p.TotalPoints, &p.Minutes, &status, &avail,
-			&p.Form, &p.PointsPerGame,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		p.Status = status
-		p.Availability = float64(avail) / 100.0
-		if status == "i" || status == "s" {
-			p.Availability = 0
-		} else if status == "d" {
-			p.Availability *= 0.5
-		}
-
-		players = append(players, p)
-	}
-	return players, rows.Err()
-}
-
+// GetActivePlayersWithExpected returns players with at least minMinutes played.
+// Pass 0 to include every player, including those with no minutes yet (cold start).
 func (r *Repository) GetActivePlayersWithExpected(minMinutes int) ([]models.PlayerScore, error) {
 	rows, err := r.db.Query(`
 		SELECT
@@ -327,7 +285,7 @@ func (r *Repository) GetActivePlayersWithExpected(minMinutes int) ([]models.Play
 			CAST(p.form AS REAL), CAST(p.points_per_game AS REAL)
 		FROM players p
 		LEFT JOIN teams t ON p.team = t.id
-		WHERE p.minutes > ?
+		WHERE p.minutes >= ?
 		ORDER BY p.total_points DESC
 	`, minMinutes)
 	if err != nil {
@@ -364,19 +322,19 @@ func (r *Repository) GetActivePlayersWithExpected(minMinutes int) ([]models.Play
 }
 
 type PlayerHistoryStats struct {
-	Games     int
-	Minutes   int
-	Points    int
-	XG        float64
-	XA        float64
-	XGI       float64
-	XGC       float64
-	CS        int
-	Goals     int
-	Assists   int
-	TeamGoals int
-	CBIT      int
-	Tackles   int
+	Games      int
+	Minutes    int
+	Points     int
+	XG         float64
+	XA         float64
+	XGI        float64
+	XGC        float64
+	CS         int
+	Goals      int
+	Assists    int
+	TeamGoals  int
+	CBIT       int
+	Tackles    int
 	Recoveries int
 }
 
@@ -603,13 +561,6 @@ func (r *Repository) GetTeamRatings() (map[int]models.TeamRating, error) {
 	return ratings, rows.Err()
 }
 
-// GetTeamFromPlayer returns the team ID for a player
-func (r *Repository) GetTeamFromPlayer(playerID int) (int, error) {
-	var teamID int
-	err := r.db.QueryRow("SELECT team FROM players WHERE id = ?", playerID).Scan(&teamID)
-	return teamID, err
-}
-
 // PHASE 4: Fixture lookahead for multi-week scoring
 
 // GetNextFixture returns the next fixture for a given team and gameweek range
@@ -722,37 +673,6 @@ func (r *Repository) GetLastNGameweeks(n int) ([]int, error) {
 	return gws, rows.Err()
 }
 
-// GetPlayerHistoryForGW returns a player's history entry for a specific gameweek
-func (r *Repository) GetPlayerHistoryForGW(playerID int, gw int) (*PlayerHistoryStats, error) {
-	row := r.db.QueryRow(`
-		SELECT
-			1, COALESCE(minutes,0), COALESCE(total_points,0),
-			COALESCE(CAST(expected_goals AS REAL),0),
-			COALESCE(CAST(expected_assists AS REAL),0),
-			COALESCE(CAST(expected_goal_involvements AS REAL),0),
-			COALESCE(CAST(expected_goals_conceded AS REAL),0),
-			COALESCE(clean_sheets,0),
-			COALESCE(goals_scored,0), COALESCE(assists,0),
-			COALESCE(COALESCE(clearances_blocks_interceptions,0),0),
-			COALESCE(COALESCE(tackles,0),0),
-			COALESCE(COALESCE(recoveries,0),0),
-			0, 0, 0
-		FROM player_history
-		WHERE player_id = ? AND event = ?
-	`, playerID, gw)
-
-	var s PlayerHistoryStats
-	err := row.Scan(&s.Games, &s.Minutes, &s.Points, &s.XG, &s.XA, &s.XGI, &s.XGC, &s.CS,
-		&s.Goals, &s.Assists, &s.CBIT, &s.Tackles, &s.Recoveries, &s.TeamGoals)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &s, nil
-}
-
 // PHASE 5: Get all players with goal data for empirical Bayes prior computation
 func (r *Repository) GetPositionStats(lastNGameweeks int) ([]PositionStatSummary, error) {
 	gws, err := r.GetLastNGameweeks(lastNGameweeks)
@@ -798,39 +718,6 @@ type PositionStatSummary struct {
 	TotalAssists int
 	TotalMinutes int
 	NumPlayers   int
-}
-
-// PHASE 6: Free transfer tracking
-
-// GetFreeTransfers returns the user's current free transfers count
-func (r *Repository) GetFreeTransfers() (int, error) {
-	val, err := r.GetMetadata("free_transfers")
-	if err != nil || val == "" {
-		return 1, nil // default to 1 free transfer
-	}
-	var ft int
-	fmt.Sscanf(val, "%d", &ft)
-	return ft, nil
-}
-
-// GetNextGameweekForTransfers returns the gameweek to optimize transfers for
-func (r *Repository) GetNextGameweekForTransfers() (int, error) {
-	return r.GetCurrentGameweek()
-}
-
-// ComputeSellPrice uses FPL sell-price rules: (purchase + current) / 2 if profit, else current
-func ComputeSellPrice(purchasePrice, currentPrice int) int {
-	sellPrice := currentPrice
-	if currentPrice > purchasePrice {
-		sellPrice = (purchasePrice + currentPrice) / 2
-	}
-	return sellPrice
-}
-
-// RoundFloat rounds a float to n decimal places
-func RoundFloat(val float64, precision int) float64 {
-	ratio := math.Pow(10, float64(precision))
-	return math.Round(val*ratio) / ratio
 }
 
 // COLD-START: Multi-season blended stats using vaastav historical data.
@@ -933,16 +820,16 @@ func (r *Repository) blendStatsN(playerID int, numRecentGames int, maxPriorSeaso
 	}
 
 	blended := &PlayerHistoryStats{
-		Games:   currentStats.Games + int(float64(priorStats.Games)*priorRatio),
-		Minutes: currentStats.Minutes + int(float64(priorStats.Minutes)*priorRatio),
-		Points:  currentStats.Points + int(float64(priorStats.Points)*priorRatio),
-		XG:      currentStats.XG + priorStats.XG*priorRatio,
-		XA:      currentStats.XA + priorStats.XA*priorRatio,
-		XGI:     currentStats.XGI + priorStats.XGI*priorRatio,
-		XGC:     currentStats.XGC + priorStats.XGC*priorRatio,
-		CS:      currentStats.CS + int(float64(priorStats.CS)*priorRatio),
-		Goals:   currentStats.Goals + int(float64(priorStats.Goals)*priorRatio),
-		Assists: currentStats.Assists + int(float64(priorStats.Assists)*priorRatio),
+		Games:     currentStats.Games + int(float64(priorStats.Games)*priorRatio),
+		Minutes:   currentStats.Minutes + int(float64(priorStats.Minutes)*priorRatio),
+		Points:    currentStats.Points + int(float64(priorStats.Points)*priorRatio),
+		XG:        currentStats.XG + priorStats.XG*priorRatio,
+		XA:        currentStats.XA + priorStats.XA*priorRatio,
+		XGI:       currentStats.XGI + priorStats.XGI*priorRatio,
+		XGC:       currentStats.XGC + priorStats.XGC*priorRatio,
+		CS:        currentStats.CS + int(float64(priorStats.CS)*priorRatio),
+		Goals:     currentStats.Goals + int(float64(priorStats.Goals)*priorRatio),
+		Assists:   currentStats.Assists + int(float64(priorStats.Assists)*priorRatio),
 		TeamGoals: currentStats.TeamGoals,
 	}
 
@@ -1046,14 +933,6 @@ func (r *Repository) getSeasonOrder() ([]string, error) {
 		seasons = append(seasons, s)
 	}
 	return seasons, nil
-}
-
-func seasonsToNameList(names map[string]float64) []string {
-	var list []string
-	for name := range names {
-		list = append(list, name)
-	}
-	return list
 }
 
 // querySeasonStatsForSeason gets aggregated stats for a player name from a specific season.

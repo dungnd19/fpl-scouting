@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -163,22 +162,12 @@ func main() {
 // loadConfig loads configuration from environment variables
 func loadConfig() Config {
 	return Config{
-		DBPath:           getEnv("DB_PATH", "/data/fpl.db"),
-		SchemaPath:       getEnv("SCHEMA_PATH", "/app/schema.sql"),
-		FetchSchedule:    getEnv("FETCH_SCHEDULE", "0 */1 * * *"),
-		UserID:           getEnv("USER_ID", "default"),
+		DBPath:        getEnv("DB_PATH", "/data/fpl.db"),
+		SchemaPath:    getEnv("SCHEMA_PATH", "/app/schema.sql"),
+		FetchSchedule: getEnv("FETCH_SCHEDULE", "0 */1 * * *"),
+		UserID:        getEnv("USER_ID", "default"),
 		FPLTeamID:     getEnv("FPL_TEAM_ID", ""),
 	}
-}
-
-// getEnvInt gets an integer environment variable or returns a default value
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if i, err := strconv.Atoi(value); err == nil {
-			return i
-		}
-	}
-	return defaultValue
 }
 
 // convertEntries converts vaastav fetcher entries to model entries

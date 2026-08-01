@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"log"
-	"math"
 	"sort"
 	"strconv"
 
@@ -142,14 +141,6 @@ func OptimizeSquadBest(players []models.PlayerScore, constraints SquadConstraint
 		}
 	}
 	return best
-}
-
-func OptimizeSquad(players []models.PlayerScore, constraints SquadConstraints) *OptimizedSquad {
-	return OptimizeSquadBest(players, constraints)
-}
-
-func OptimizeSquadMultiRun(players []models.PlayerScore, constraints SquadConstraints, runs int) *OptimizedSquad {
-	return OptimizeSquadBest(players, constraints)
 }
 
 func tryFormation(byPos map[int][]models.PlayerScore, c SquadConstraints, defN, midN, fwdN int, benchReserve int) *OptimizedSquad {
@@ -344,11 +335,6 @@ func (s *OptimizedSquad) slotListForPos(pos int) *[]SquadSlot {
 		return &s.Forwards
 	}
 	return nil
-}
-
-func RoundTo(val float64, places int) float64 {
-	pow := math.Pow(10, float64(places))
-	return math.Round(val*pow) / pow
 }
 
 func (s *OptimizedSquad) teamEP() float64 {

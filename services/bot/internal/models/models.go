@@ -37,14 +37,6 @@ type TransferResult struct {
 	Response string
 }
 
-// UserState represents user state in the database
-type UserState struct {
-	UserID         string
-	TelegramChatID int64
-	FPLTeamID      string
-	SessionCookie  string
-}
-
 // PlayerScore represents a scored player for analysis
 type PlayerScore struct {
 	PlayerID     int
@@ -96,29 +88,29 @@ type PlayerScore struct {
 	OverallScore float64
 
 	// Bayesian model (Phase 5)
-	ProbScore        float64 // P(player scores | team scores)
-	ProbAssist       float64 // P(player assists | team scores)
-	PriorAlphaScore  float64 // Dirichlet alpha for goals
-	PriorAlphaAssist float64 // Dirichlet alpha for assists
+	ProbScore         float64 // P(player scores | team scores)
+	ProbAssist        float64 // P(player assists | team scores)
+	PriorAlphaScore   float64 // Dirichlet alpha for goals
+	PriorAlphaAssist  float64 // Dirichlet alpha for assists
 	PriorAlphaNeither float64
 }
 
 // PlayerReport represents a player entry in position reports
 type PlayerReport struct {
-	PlayerID  int
-	WebName   string
-	TeamName  string
-	Position  int
-	NowCost   int
-	XScore    float64
-	PPG       float64
-	XGPer90   float64
-	XAPer90   float64
-	XGIPer90  float64
-	XGCPer90  float64
-	CSRate    float64
-	Games     int
-	Minutes   int
+	PlayerID int
+	WebName  string
+	TeamName string
+	Position int
+	NowCost  int
+	XScore   float64
+	PPG      float64
+	XGPer90  float64
+	XAPer90  float64
+	XGIPer90 float64
+	XGCPer90 float64
+	CSRate   float64
+	Games    int
+	Minutes  int
 
 	ExpectedPoints float64
 	Value          float64
@@ -144,24 +136,13 @@ type FixtureInfo struct {
 
 // TransferPlan represents a multi-GW transfer strategy (Phase 6)
 type TransferPlan struct {
-	TransfersOut []int
-	TransfersIn  []int
+	TransfersOut  []int
+	TransfersIn   []int
 	FreeTransfers int
 	PointsHit     int // 4 * max(0, numTransfers - freeTransfers)
 	ChipPlayed    string
 	Gameweek      int
 }
 
-// Position constants
-const (
-	PosGK  = 1
-	PosDEF = 2
-	PosMID = 3
-	PosFWD = 4
-)
-
-// PositionToName maps position code to name
+// PositionNames maps position code to name
 var PositionNames = map[int]string{1: "GK", 2: "DEF", 3: "MID", 4: "FWD"}
-
-// PositionToNameStr maps position code to display name
-var PositionToNameStr = map[int]string{1: "Goalkeeper", 2: "Defender", 3: "Midfielder", 4: "Forward"}

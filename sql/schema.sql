@@ -91,11 +91,8 @@ CREATE TABLE IF NOT EXISTS fixtures (
     started INTEGER,
     team_h INTEGER, -- home team
     team_a INTEGER, -- away team
-    team_h_score INTEGER,
-    team_a_score INTEGER,
     team_h_difficulty INTEGER,
     team_a_difficulty INTEGER,
-    pulse_id INTEGER,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(id)
 );
@@ -161,11 +158,6 @@ CREATE INDEX IF NOT EXISTS idx_transfer_log_timestamp ON transfer_log(timestamp)
 CREATE TABLE IF NOT EXISTS user_state (
     user_id TEXT PRIMARY KEY,
     telegram_chat_id INTEGER,
-    fpl_team_id INTEGER,
-    session_cookie TEXT,
-    state TEXT, -- JSON state for bot conversation
-    last_notification TIMESTAMP,
-    preferences TEXT, -- JSON user preferences
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

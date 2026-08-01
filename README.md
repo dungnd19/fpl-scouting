@@ -1,249 +1,76 @@
-# FPL Scouting System Specification
+# FPL Scouting
 
-This document defines all services in the **docker-compose** stack and provides precise, coding-agent-ready specifications.
+A Fantasy Premier League transfer and squad-building assistant. Two Go
+services share a SQLite database and talk to you over Telegram.
 
----
-
-## Overall Architecture
-
-The system contains 5 services:
-
-1. **fpl-fetcher** – periodically fetches raw FPL API data and stores to ClickHouse.
-2. **fpl-analyzer** – computes metrics, predictions, and recommended transfers.
-3. **fpl-telegram-bot** – sends recommendations to Telegram and accepts confirmations.
-4. **fpl-trader** – executes transfers via private API when receiving webhook from Telegram bot.
-5. **clickhouse** – stores persistent data for all services.
-
-All services communicate over internal Docker network.
-
----
-
-## 1. Service: fpl-fetcher
-
-**Purpose:** Fetch official FPL API data and persist into ClickHouse tables.
-
-### Responsibilities
-
-* Pull periodic data from:
-
-  * `https://fantasy.premierleague.com/api/bootstrap-static/`
-  * `https://fantasy.premierleague.com/api/element-summary/{id}/`
-  * (Optional) user team endpoint using session cookie
-* Normalize and write into ClickHouse tables:
-
-  * `players`
-  * `player_history`
-  * `fixtures`
-* Ensure idempotent ingestion (dedupe by `event` and `player_id`).
-
-### Inputs
-
-* FPL session cookie (optional) via environment variable.
-* Schedule (interval) via environment variable.
-
-### Outputs
-
-* Writes rows to ClickHouse.
-
-### Code Agent Requirements
-
-* Use Python or Go.
-* Must retry failed API calls with exponential backoff.
-* Must batch insert into ClickHouse.
-* Must use persistent storage.
-
----
-
-## 2. Service: fpl-analyzer
-
-**Purpose:** Read raw tables and compute predictions + recommended transfers.
-
-### Responsibilities
-
-* Compute player metrics:
-
-  * expected points
-  * value (points/price)
-  * form/streak metric
-  * fixture difficulty weighting
-  * risk score (rotation, injury)
-* Compute team-level metrics:
-
-  * squad balance
-  * captain prediction
-  * transfer recommendations (`sell`, `buy`, `reason`, `score`)
-* Produce output JSON into ClickHouse table `recommendations`.
-
-### Inputs
-
-* ClickHouse tables: `players`, `player_history`, `fixtures`.
-
-### Outputs
-
-* ClickHouse table `recommendations` with structure:
-
-  ```
-  timestamp DateTime
-  user_id String
-  transfers Array(String)
-  scores Array(Float64)
-  meta String
-  ```
-
-### Code Agent Requirements
-
-* Use Python, Go or Java.
-* Implement a pluggable scoring algorithm.
-* Should support CLI/manual run and cron-like periodic run.
-
----
-
-## 3. Service: fpl-telegram-bot
-
-**Purpose:** Notify user of recommended transfers; receive confirmation.
-
-### Responsibilities
-
-* Poll ClickHouse for the latest recommendations.
-* Send message to Telegram via Bot API.
-* Include inline keyboard:
-
-  * **Confirm Transfer** → send webhook to `fpl-trader`.
-* Maintain per-user state.
-
-### Inputs
-
-* Telegram Bot Token.
-* ClickHouse database.
-
-### Outputs
-
-* Webhook call to `fpl-trader`:
-
-  ```json
-  {
-    "user_id": "123",
-    "transfers": ["SELL_xx", "BUY_yy"],
-    "timestamp": "..."
-  }
-  ```
-
-### Code Agent Requirements
-
-* Use Python/aiogram or Node.js.
-* Must handle Telegram webhook or polling mode.
-
----
-
-## 4. Service: fpl-trader
-
-**Purpose:** Execute trades using private API with user session cookie.
-
-### Responsibilities
-
-* Receive POST webhook from telegram bot.
-* Validate command.
-* Call private FPL API:
-
-  * `https://fantasy.premierleague.com/api/my-team/{team_id}/transfer/`
-* Rate-limit requests.
-* Log the result into ClickHouse table `transfer_log`.
-
-### Inputs
-
-* Session cookie.
-* User team ID.
-
-### Outputs
-
-* `transfer_log` table with fields:
-
-  ```
-  timestamp DateTime
-  user_id String
-  request String
-  response String
-  status String
-  ```
-
-### Code Agent Requirements
-
-* Use Python or Go.
-* Ensure safe execution (no duplicate transfers).
-
----
-
-## 5. Database: ClickHouse
-
-**Purpose:** Persistent analytics store.
-
-### Requirements
-
-* Use mounted volume for persistence.
-* Expose port 8123 internally.
-* Tables:
-
-  * `players`
-  * `player_history`
-  * `fixtures`
-  * `recommendations`
-  * `transfer_log`
-
----
-
-## docker-compose.yaml Specification
-
-This section specifies how the coding agent must generate `docker-compose.yaml`.
-
-### Services
-
-* `clickhouse`
-* `fpl-fetcher`
-* `fpl-analyzer`
-* `fpl-telegram-bot`
-* `fpl-trader`
-
-### Requirements
-
-* All services must share a single network `fpl-net`.
-* ClickHouse must mount persistent volumes.
-* Each service must use environment variables via `.env`.
-* Each service must auto-restart.
-
-Example directory layout the coding agent should create:
+## Architecture
 
 ```
-fpl/
-  docker-compose.yaml
-  .env
-  services/
-    fetcher/
-    analyzer/
-    telegram_bot/
-    trader/
-  sql/
-    create_tables.sql
-  docs/
-    fpl-scouting.md
+FPL API → fpl-core (fetch, hourly) → SQLite → /suggest → fpl-bot (analyze on-demand) → Telegram → confirm → fpl-bot (trade) → FPL API
 ```
 
----
+| Service | Type | Purpose |
+|---|---|---|
+| **fpl-core** (`services/core`) | Cron, fetch-only | Pulls FPL API data (players, history, fixtures, your team) every hour and writes it to SQLite. |
+| **fpl-bot** (`services/bot`) | Long-running | Handles Telegram commands, runs on-demand analysis, builds squads, executes user-confirmed transfers via the FPL private API. |
 
-## Task Summary for Coding Agent
+Both services are separate Go modules, built as ~15MB Alpine images, and
+capped at 50MB/60MB memory respectively. There's no separate analytics
+database — everything lives in one SQLite file (`sql/schema.sql`, 9 tables),
+mounted as a shared Docker volume.
 
-1. Generate full `docker-compose.yaml`.
-2. Scaffold five service folders.
-3. Implement ClickHouse schema creation script.
-4. Implement code templates for each service.
-5. Enable persistent volumes.
-6. Implement a Makefile:
+## What it does
 
-   * `make up`
-   * `make down`
-   * `make logs`
-7. Implement CI/CD building each service container.
+- **Scores every player** using expected goals/assists/clean-sheets (xG/xA/xCS)
+  from recent match history, weighted by position.
+- **`/suggest`** — compares your current squad against the rest of the
+  league and proposes sell/buy transfers ranked by expected point gain,
+  respecting your bank and each player's live selling price.
+- **`/startsquad`** — builds an optimal 15-player squad from scratch (season
+  start or a full rebuild), sweeping formations and bench-budget splits for
+  the best starting XI.
+- **`/report`** — top 5 players per position over the last 5 GWs, last 10
+  GWs, and the full season.
+- **`/recommendations`** / **`/status`** — review pending suggestions and
+  check system health (player count, last fetch/analysis time).
+- **Confirm/reject via Telegram buttons** — accepted transfers are executed
+  against the live FPL API using your session cookie.
 
----
+See `CLAUDE.md` for the exact scoring formulas and code layout.
 
-This specification is complete and suitable for automated implementation.
+## Setup
 
+```bash
+make install       # creates .env from .env.example — fill in your values
+make build          # build both Docker images
+make up              # start services (detached)
+```
+
+Required in `.env`:
+- `TELEGRAM_BOT_TOKEN` — your bot's token.
+- `FPL_SESSION_COOKIE`, `FPL_TEAM_ID` — needed for squad data and trading.
+  Get the cookie from your browser: DevTools → Application → Cookies →
+  `pl_profile`, while logged into the FPL site.
+
+## Common commands
+
+```bash
+make logs            # tail all logs
+make status           # container status + memory usage
+make fetch             # manually trigger an FPL data fetch
+make shell-core         # shell into the core container
+make shell-bot            # shell into the bot container
+make db-copy                # copy the SQLite DB out for local inspection
+```
+
+Run `make help` for the full list.
+
+## Telegram commands
+
+- `/suggest` — analyze your squad, propose transfers.
+- `/startsquad` — build a fresh 15-player squad.
+- `/report` — top performers per position.
+- `/myteam` — show your current squad.
+- `/recommendations` — view pending suggestions.
+- `/status` — system health.
+- `/fetch` — trigger a data fetch on demand.

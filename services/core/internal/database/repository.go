@@ -1,8 +1,6 @@
 package database
 
 import (
-	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -145,110 +143,6 @@ func (r *Repository) StorePlayerHistory(history []models.HistoryEntry) error {
 	return tx.Commit()
 }
 
-// GetActivePlayers retrieves players with significant playing time
-func (r *Repository) GetActivePlayers(minMinutes int) ([]models.PlayerScore, error) {
-	rows, err := r.db.Query(`
-		SELECT
-			id, web_name, team, element_type, now_cost, total_points,
-			CAST(form AS REAL) as form,
-			CAST(points_per_game AS REAL) as ppg,
-			status,
-			COALESCE(chance_of_playing_next_round, 100) as availability
-		FROM players
-		WHERE minutes > ?
-		ORDER BY total_points DESC
-	`, minMinutes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query players: %w", err)
-	}
-	defer rows.Close()
-
-	players := make([]models.PlayerScore, 0)
-	for rows.Next() {
-		var p models.PlayerScore
-		var status string
-		var availability int
-
-		err := rows.Scan(
-			&p.PlayerID, &p.WebName, &p.Team, &p.Position, &p.NowCost,
-			&p.TotalPoints, &p.Form, &p.PointsPerGame, &status, &availability,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan player: %w", err)
-		}
-
-		// Calculate availability score (0-1)
-		p.Availability = float64(availability) / 100.0
-		if status == "i" || status == "s" {
-			p.Availability = 0
-		} else if status == "d" {
-			p.Availability *= 0.5
-		}
-
-		players = append(players, p)
-	}
-
-	return players, rows.Err()
-}
-
-// GetPlayerRecentForm gets average points from last N games
-func (r *Repository) GetPlayerRecentForm(playerID int, numGames int) (float64, error) {
-	var avgPoints sql.NullFloat64
-	err := r.db.QueryRow(`
-		SELECT AVG(total_points)
-		FROM (
-			SELECT total_points
-			FROM player_history
-			WHERE player_id = ?
-			ORDER BY event DESC
-			LIMIT ?
-		)
-	`, playerID, numGames).Scan(&avgPoints)
-
-	if err != nil {
-		return 0, fmt.Errorf("failed to get recent form: %w", err)
-	}
-
-	if !avgPoints.Valid {
-		return 0, nil
-	}
-
-	return avgPoints.Float64, nil
-}
-
-// StoreRecommendations stores transfer recommendations
-func (r *Repository) StoreRecommendations(userID string, recommendations []models.TransferRecommendation) error {
-	tx, err := r.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer tx.Rollback()
-
-	for _, rec := range recommendations {
-		meta := map[string]interface{}{
-			"expected_gain": rec.ExpectedGain,
-			"price_diff":    rec.PriceDiff,
-		}
-		metaJSON, _ := json.Marshal(meta)
-
-		_, err := tx.Exec(`
-			INSERT INTO recommendations (
-				user_id, sell_player_id, buy_player_id,
-				sell_player_name, buy_player_name,
-				reason, score, expected_points_gain, price_diff, meta
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, userID, rec.SellPlayerID, rec.BuyPlayerID,
-			rec.SellPlayerName, rec.BuyPlayerName,
-			rec.Reason, rec.Score, rec.ExpectedGain, rec.PriceDiff, string(metaJSON))
-
-		if err != nil {
-			return fmt.Errorf("failed to insert recommendation: %w", err)
-		}
-	}
-
-	return tx.Commit()
-}
-
 // UpdateMetadata updates a metadata key-value pair
 func (r *Repository) UpdateMetadata(key, value string) error {
 	_, err := r.db.Exec(`
@@ -261,27 +155,9 @@ func (r *Repository) UpdateMetadata(key, value string) error {
 	return nil
 }
 
-// GetMetadata retrieves a metadata value
-func (r *Repository) GetMetadata(key string) (string, error) {
-	var value string
-	err := r.db.QueryRow("SELECT value FROM metadata WHERE key = ?", key).Scan(&value)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to get metadata: %w", err)
-	}
-	return value, nil
-}
-
 // SetLastFetch updates the last fetch timestamp
 func (r *Repository) SetLastFetch() error {
 	return r.UpdateMetadata("last_fetch", time.Now().Format(time.RFC3339))
-}
-
-// SetLastAnalyze updates the last analyze timestamp
-func (r *Repository) SetLastAnalyze() error {
-	return r.UpdateMetadata("last_analyze", time.Now().Format(time.RFC3339))
 }
 
 // StoreSeasonHistoryBatch stores historical season data from vaastav fetcher.
@@ -428,11 +304,4 @@ func (r *Repository) BuildCrossSeasonMap(season string) error {
 	}
 
 	return tx.Commit()
-}
-
-// HasSeasonData checks if any season history has been loaded
-func (r *Repository) HasSeasonData() (bool, error) {
-	var count int
-	err := r.db.QueryRow("SELECT COUNT(*) FROM season_history").Scan(&count)
-	return count > 0, err
 }

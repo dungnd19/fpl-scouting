@@ -77,46 +77,6 @@ func (r *Repository) StoreMyTeam(userID string, team *models.MyTeam) error {
 	return nil
 }
 
-// GetMyTeamPlayerIDs returns a map of player IDs in the user's team
-func (r *Repository) GetMyTeamPlayerIDs(userID string) (map[int]bool, error) {
-	rows, err := r.db.Query("SELECT player_id FROM my_team WHERE user_id = ?", userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query my_team: %w", err)
-	}
-	defer rows.Close()
-
-	playerIDs := make(map[int]bool)
-	for rows.Next() {
-		var playerID int
-		if err := rows.Scan(&playerID); err != nil {
-			return nil, fmt.Errorf("failed to scan player_id: %w", err)
-		}
-		playerIDs[playerID] = true
-	}
-
-	return playerIDs, rows.Err()
-}
-
-// CleanOldRecommendations deletes old recommendations (older than N days)
-func (r *Repository) CleanOldRecommendations(daysToKeep int) error {
-	result, err := r.db.Exec(`
-		DELETE FROM recommendations 
-		WHERE timestamp < datetime('now', '-' || ? || ' days')
-		AND status IN ('sent', 'rejected', 'executed', 'failed')
-	`, daysToKeep)
-	
-	if err != nil {
-		return fmt.Errorf("failed to clean old recommendations: %w", err)
-	}
-
-	rows, _ := result.RowsAffected()
-	if rows > 0 {
-		log.Printf("Cleaned %d old recommendations", rows)
-	}
-
-	return nil
-}
-
 // boolToInt converts boolean to integer (0 or 1)
 func boolToInt(b bool) int {
 	if b {

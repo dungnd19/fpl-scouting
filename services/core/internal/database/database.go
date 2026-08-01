@@ -28,13 +28,13 @@ func New(cfg Config) (*DB, error) {
 
 	// Set pragmas for performance and safety
 	pragmas := []string{
-		"PRAGMA journal_mode=WAL",           // Write-Ahead Logging for better concurrency
-		"PRAGMA synchronous=NORMAL",         // Balance between safety and speed
-		"PRAGMA cache_size=-2000",           // 2MB cache
-		"PRAGMA temp_store=MEMORY",          // Store temp tables in memory
-		"PRAGMA mmap_size=30000000000",      // Memory-mapped I/O
-		"PRAGMA foreign_keys=ON",            // Enable foreign key constraints
-		"PRAGMA busy_timeout=5000",          // Wait up to 5s for locks
+		"PRAGMA journal_mode=WAL",      // Write-Ahead Logging for better concurrency
+		"PRAGMA synchronous=NORMAL",    // Balance between safety and speed
+		"PRAGMA cache_size=-2000",      // 2MB cache
+		"PRAGMA temp_store=MEMORY",     // Store temp tables in memory
+		"PRAGMA mmap_size=30000000000", // Memory-mapped I/O
+		"PRAGMA foreign_keys=ON",       // Enable foreign key constraints
+		"PRAGMA busy_timeout=5000",     // Wait up to 5s for locks
 	}
 
 	for _, pragma := range pragmas {
@@ -93,9 +93,4 @@ func runMigrations(db *sql.DB) error {
 		db.Exec(m) // ignore errors (column already exists)
 	}
 	return nil
-}
-
-// Close closes the database connection
-func (db *DB) Close() error {
-	return db.DB.Close()
 }

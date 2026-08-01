@@ -76,8 +76,6 @@ func ScorePlayer(
 		p.XScore = p.XGPer90*4.0 + p.XAPer90*3.0 + p.PPG*1.0
 	}
 
-	largeEnough := teamModel != nil && p.TeamID > 0
-
 	p.ExpectedPoints = SimpleExpectedPoints(
 		p.Position,
 		p.XGPer90,
@@ -90,29 +88,6 @@ func ScorePlayer(
 		fixtureAdj,
 		defconScore,
 	)
-
-	if largeEnough {
-		avgXG := 1.4
-		teamGoalDist := make([]float64, 7)
-		for k := 0; k <= 6; k++ {
-			teamGoalDist[k] = PoissonProb(avgXG, k)
-		}
-		teamConcedeDist := teamGoalDist
-
-		p.ExpectedPoints = ExpectedFPLPoints(
-			p.Position,
-			p.XGPer90,
-			p.XAPer90,
-			p.XGCPer90,
-			p.CSRate,
-			p.PPG,
-			p.Availability,
-			expectedMins,
-			teamGoalDist,
-			teamConcedeDist,
-			defconScore,
-		)
-	}
 
 	costInMillions := float64(p.NowCost) / 10.0
 	if costInMillions > 0 && p.ExpectedPoints > 0 {
@@ -167,10 +142,10 @@ func ScorePlayerForReport(p models.PlayerScore, stats *database.PlayerHistorySta
 	defconScore := 0.0
 	if p.Position == 2 {
 		cbitPer90 := float64(stats.CBIT) / nineties
-		defconScore = expectedDefconPointsStable(cbitPer90, 10)
+		defconScore = expectedDefconPoints(cbitPer90, 1.0, 10)
 	} else if p.Position == 3 {
 		cbirtPer90 := float64(stats.CBIT+stats.Tackles+stats.Recoveries) / nineties
-		defconScore = expectedDefconPointsStable(cbirtPer90, 12)
+		defconScore = expectedDefconPoints(cbirtPer90, 1.0, 12)
 	}
 
 	switch p.Position {
@@ -199,15 +174,4 @@ func ScorePlayerForReport(p models.PlayerScore, stats *database.PlayerHistorySta
 	}
 
 	return r
-}
-
-func expectedDefconPointsStable(per90Rate float64, threshold int) float64 {
-	if per90Rate <= 0 || threshold <= 0 {
-		return 0
-	}
-	prob := per90Rate / float64(threshold)
-	if prob > 1.0 {
-		prob = 1.0
-	}
-	return prob * 2.0
 }
