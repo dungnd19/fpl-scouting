@@ -27,7 +27,7 @@ tables), mounted as a shared Docker volume.
 - **`/suggest`** — compares your current squad against the rest of the
   league and proposes sell/buy transfers ranked by expected point gain,
   respecting your bank and each player's live selling price.
-- **`/startsquad`** — builds an optimal 15-player squad from scratch (season
+- **`/init_squad`** — builds an optimal 15-player squad from scratch (season
   start or a full rebuild), sweeping formations and bench-budget splits for
   the best starting XI.
 - **`/report`** — top 5 players per position over the last 5 GWs, last 10
@@ -82,7 +82,7 @@ startup, so the database is current again without a separate step.
 ## Telegram commands
 
 - `/suggest` — analyze your squad, propose transfers.
-- `/startsquad` — build a fresh 15-player squad.
+- `/init_squad` — build a fresh 15-player squad.
 - `/report` — top performers per position.
 - `/myteam` — show your current squad.
 - `/recommendations` — view pending suggestions.

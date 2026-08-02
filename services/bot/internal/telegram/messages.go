@@ -92,7 +92,7 @@ func WelcomeMessage() string {
 		"/myteam - Show your current squad\n" +
 		"/fetch - Trigger FPL data fetch on demand\n" +
 		"/suggest - Analyze squad & suggest transfers\n" +
-		"/startsquad - Build initial 15-player squad\n" +
+		"/init_squad - Build initial 15-player squad\n" +
 		"/report - Top 5 per position (5/10 GW & season)\n" +
 		"/recommendations - View pending recommendations\n" +
 		"/status - System status"

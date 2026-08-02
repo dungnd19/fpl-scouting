@@ -47,7 +47,8 @@ Then when the data is up-to-date, we can using these endpoint to get the data
 - `/recommendations` — View pending recommendations from previous analyses.
 - `/init-squad` - View and calculate intial squad at start of the season base on current player and price with maximine the scoring value of next 3 gameweek. The squad must comply to setting and if no squad can be created with default bench bugget, keep open bench budget by 0.1 till find the maxinum point of the starting 11 squad
 - `/status` — System status (player count, last fetch time, pending recs).
-Status: new
+Status: done — Tasks 1-3 below all landed. `/init-squad` shipped as
+`/init_squad` (see progress note).
 
 **Decisions (2026-08-02):**
 - DB migrations: adopt a real migration framework (goose), not just
@@ -59,6 +60,6 @@ Status: new
   default 3, threading into the existing multi-GW lookahead.
 See `docs/plan.md` Tasks 1-3.
 
-**Progress (2026-08-02):** Task 1 (goose migrations) done. Task 2
-(`/suggest [1|2|3]` horizon) done — see `docs/plan.md` for details. Task 3
-(`/init-squad` tests + rename) not started.
+**Progress (2026-08-02):** All 3 tasks done — see `docs/plan.md` for
+details. Task 3 shipped as `/init_squad` (underscore, not hyphen) because
+Telegram's `setMyCommands` rejects hyphens in command names.

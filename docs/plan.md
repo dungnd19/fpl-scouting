@@ -148,39 +148,52 @@ table-driven, temp SQLite file per case:**
       telegram package; wired into `handleSuggest`, default 3, replies with
       a friendly error on invalid input instead of clamping silently.
 
-### Task 3 — `/init-squad`: unit tests first, then rename from `/startsquad`
+### Task 3 — `/init-squad`: unit tests first, then rename from `/startsquad` — DONE
+
+**Deviation:** requirement text said `/init-squad`, but Telegram's
+`setMyCommands` only accepts `^[a-z0-9_]{1,32}$` — hyphens are rejected
+and would break registration of the *entire* command menu (one batch
+call for all commands), not just this one. Shipped as `/init_squad`
+(underscore) instead.
 
 **Test plan (this task's main deliverable — repo's first `_test.go`,
 stdlib `testing` only, table-driven) — new
 `services/bot/internal/analyzer/squad_optimizer_test.go`, written and
 green against *current* behavior before any rename:**
-- [ ] Valid squad at default budget with ample pool of every position →
+- [x] Valid squad at default budget with ample pool of every position →
       non-nil, cost ≤ 1000, exactly 2/5/5/3, formation in `validFormations`.
-- [ ] Budget must be relaxed via the bench-reserve sweep before a valid
-      starting 11 emerges → `OptimizeSquadBest` still returns non-nil.
-- [ ] No valid squad possible at any level (e.g. zero forwards in pool)
+- [x] Bench-reserve sweep (`OptimizeSquadBest`) still returns non-nil.
+      Note: `benchReserve` is currently dead weight in `tryFormation` —
+      it's only recorded on the result, never used to change what the
+      budget can afford — so the sweep can't actually "relax" anything
+      today; test asserts the sweep matches a direct single-reserve call
+      instead of a since-disproven relaxation behavior.
+- [x] No valid squad possible at any level (e.g. zero forwards in pool)
       → `nil`, no panic.
-- [ ] Max-3-per-team constraint never violated even when top players
+- [x] Max-3-per-team constraint never violated even when top players
       cluster on one team.
-- [ ] Chosen formation always one of the 7 `validFormations`.
-- [ ] Empty/insufficient player pool → `nil`, no panic, no index-out-of-
+- [x] Chosen formation always one of the 7 `validFormations`.
+- [x] Empty/insufficient player pool → `nil`, no panic, no index-out-of-
       range.
-- [ ] `OptimizeSeasonStartSquad`: starters below `MinStarterMinutes`
+- [x] `OptimizeSeasonStartSquad`: starters below `MinStarterMinutes`
       excluded even with high score.
-- [ ] `OptimizeSeasonStartSquad`: insufficient starter candidates per
+- [x] `OptimizeSeasonStartSquad`: insufficient starter candidates per
       `SeasonStartSquadConstraints` → `nil` (matches existing guard at
       squad_optimizer.go:487-491).
-- [ ] `go test ./services/bot/internal/analyzer/...` passes, `go vet` clean.
+- [x] `go test ./services/bot/internal/analyzer/...` passes, `go vet` clean.
 
 **Plan:**
-- [ ] Write and green the test suite above against current `/startsquad`
+- [x] Write and green the test suite above against current `/startsquad`
       behavior (before touching the rename).
-- [ ] Rename `/startsquad` → `/init-squad` in `telegram/bot.go` (command
+- [x] Rename `/startsquad` → `/init_squad` in `telegram/bot.go` (command
       menu, dispatch case, handler doc comment) and `telegram/messages.go`
-      help text; update `README.md`'s two references. Keep the £1.0m
-      bench-sweep step size unchanged (explicit user decision).
-- [ ] Re-run the test suite post-rename — must still pass unchanged
-      (confirms the rename was cosmetic, no behavior change).
+      help text; updated `README.md`'s two references. Kept the £1.0m
+      bench-sweep step size unchanged (explicit user decision). Left the
+      unrelated `-mode startsquad` flag on the standalone
+      `services/bot/cmd/analyze` debug CLI as-is (different surface, not
+      the Telegram command).
+- [x] Re-run the test suite post-rename — passed unchanged (confirms the
+      rename was cosmetic, no behavior change).
 
 **Cross-task verification:** `go build ./...` and `go test ./...` in both
 `services/core` and `services/bot` must pass before moving to the next

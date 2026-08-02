@@ -51,7 +51,7 @@ func (b *Bot) Start() error {
 		{Command: "myteam", Description: "Show your current squad"},
 		{Command: "fetch", Description: "Trigger FPL data fetch on demand"},
 		{Command: "suggest", Description: "Analyze squad & suggest transfers"},
-		{Command: "startsquad", Description: "Build initial 15-player squad"},
+		{Command: "init_squad", Description: "Build initial 15-player squad"},
 		{Command: "report", Description: "Top 5 per position (5/10 GW & season)"},
 		{Command: "recommendations", Description: "View pending recommendations"},
 		{Command: "status", Description: "System status"},
@@ -89,9 +89,9 @@ func (b *Bot) handleMessage(message *tgbotapi.Message) {
 		log.Printf("Failed to register chat ID: %v", err)
 	}
 
-	// Handle commands (longer prefixes first to avoid partial match, e.g. /start vs /startsquad)
+	// Handle commands (longer prefixes first to avoid partial match, e.g. /status vs /start)
 	switch {
-	case strings.HasPrefix(message.Text, "/startsquad"):
+	case strings.HasPrefix(message.Text, "/init_squad"):
 		b.handleStartSquad(message)
 	case strings.HasPrefix(message.Text, "/status"):
 		b.handleStatus(message)
@@ -219,7 +219,7 @@ func (b *Bot) handleSuggest(message *tgbotapi.Message) {
 	}
 }
 
-// handleStartSquad builds and sends an initial 15-player squad.
+// handleStartSquad handles /init_squad — builds and sends an initial 15-player squad.
 func (b *Bot) handleStartSquad(message *tgbotapi.Message) {
 	thinking := tgbotapi.NewMessage(message.Chat.ID, "Building initial squad (this may take a minute)...")
 	b.api.Send(thinking)
