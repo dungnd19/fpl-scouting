@@ -6,6 +6,30 @@ entries except to mark them superseded.
 
 ---
 
+## 2026-08-02 — Fix dead bench-reserve sweep
+
+While writing Task 3's squad-optimizer tests (see prior entry below),
+found that `OptimizeSquadBest`'s 18-step bench-reserve sweep (200 down to
+30) is a no-op: `benchReserve` is threaded through `tryFormation` /
+`tryFormationSeasonStart` but never used to constrain anything — it's
+only echoed onto the result. Every step of the sweep computes the exact
+same squad. User asked to review and fix.
+
+**Decision (2026-08-02):** delete the dead `benchReserve` concept rather
+than rebuild it into a real budget lever. The bench-first-cheapest design
+(from the 2026-07-28 "guarantee complete squads" fix) already gives every
+formation the maximum possible starter budget by construction — there was
+never anything left for a reserve to relax. Rebuilding it as a genuine
+lever would be a real behavior change and risks reintroducing the
+incomplete-squad bug that fix solved.
+
+Status: done. Removed `OptimizedSquad.BenchReserve`, the `benchReserve`
+parameter from `tryFormation`/`tryFormationSeasonStart`, merged
+`OptimizeSquadWithBenchReserve` into `OptimizeSquadBest` and
+`OptimizeSeasonStartSquadWithReserve` into `OptimizeSeasonStartSquad`
+(one call each, no sweep loop). Also dropped the dead `-bench-reserve` CLI
+flag on `services/bot/main.go` (set but never read). See `docs/plan.md`.
+
 ## 2026-08-02 — Deploy workflow
 
 - Server deploy = pull latest code from GitHub, rebuild Docker images,

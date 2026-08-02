@@ -27,11 +27,9 @@ type Config struct {
 }
 
 var suggestCLI bool
-var benchReserve int
 
 func main() {
 	flag.BoolVar(&suggestCLI, "suggest-cli", false, "Run suggest analysis and print to stdout")
-	flag.IntVar(&benchReserve, "bench-reserve", 120, "Bench budget reserve in 0.1m (120 = £12.0m)")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -89,8 +87,8 @@ func runSuggestCLI(repo *database.Repository, userID string) {
 	}
 
 	fmt.Println("\n══════════ RECOMMENDED STARTING SQUAD ══════════")
-	fmt.Printf("Bench reserve: £%.1fm | Formation: %s | Budget: £%.1fm / £100.0m\n",
-		float64(squad.BenchReserve)/10.0, squad.Formation(), float64(squad.TotalCost)/10.0)
+	fmt.Printf("Formation: %s | Budget: £%.1fm / £100.0m\n",
+		squad.Formation(), float64(squad.TotalCost)/10.0)
 	fmt.Println()
 
 	printSquadSection("GOALKEEPERS", squad.Goalkeepers)

@@ -14,16 +14,15 @@ type SquadSlot struct {
 }
 
 type OptimizedSquad struct {
-	Goalkeepers  []SquadSlot
-	Defenders    []SquadSlot
-	Midfielders  []SquadSlot
-	Forwards     []SquadSlot
-	TotalCost    int
-	TotalEP      float64
-	Bank         int
-	Form         [3]int
-	BenchReserve int
-	TeamEP       float64
+	Goalkeepers []SquadSlot
+	Defenders   []SquadSlot
+	Midfielders []SquadSlot
+	Forwards    []SquadSlot
+	TotalCost   int
+	TotalEP     float64
+	Bank        int
+	Form        [3]int
+	TeamEP      float64
 }
 
 type SquadConstraints struct {
@@ -67,8 +66,12 @@ var validFormations = [][3]int{
 	{4, 5, 1}, {5, 3, 2}, {5, 4, 1},
 }
 
-// OptimizeSquadWithBenchReserve builds a squad for a specific bench budget and returns it.
-func OptimizeSquadWithBenchReserve(players []models.PlayerScore, constraints SquadConstraints, benchReserve int) *OptimizedSquad {
+// OptimizeSquadBest builds the best 15-player squad across all valid
+// formations: bench filled first with the cheapest qualifying options per
+// position (guaranteeing a complete squad whenever one is affordable at
+// all), then starters filled with whatever budget remains, picked by
+// value (EP/cost).
+func OptimizeSquadBest(players []models.PlayerScore, constraints SquadConstraints) *OptimizedSquad {
 	if constraints.Budget100k == 0 {
 		constraints = DefaultSquadConstraints()
 	}
@@ -103,7 +106,7 @@ func OptimizeSquadWithBenchReserve(players []models.PlayerScore, constraints Squ
 
 	for _, formation := range validFormations {
 		defN, midN, fwdN := formation[0], formation[1], formation[2]
-		squad := tryFormation(byPos, constraints, defN, midN, fwdN, benchReserve)
+		squad := tryFormation(byPos, constraints, defN, midN, fwdN)
 		if squad == nil {
 			continue
 		}
@@ -112,7 +115,6 @@ func OptimizeSquadWithBenchReserve(players []models.PlayerScore, constraints Squ
 			bestEP = ep
 			bestSquad = squad
 			bestSquad.Form = formation
-			bestSquad.BenchReserve = benchReserve
 		}
 	}
 
@@ -123,27 +125,7 @@ func OptimizeSquadWithBenchReserve(players []models.PlayerScore, constraints Squ
 	return bestSquad
 }
 
-// OptimizeSquadBest runs a sweep of bench reserves from 200 down to 120
-// and returns the best starting 11 across all bench levels.
-func OptimizeSquadBest(players []models.PlayerScore, constraints SquadConstraints) *OptimizedSquad {
-	bestEP := -1.0
-	var best *OptimizedSquad
-
-	for benchR := 200; benchR >= 30; benchR -= 10 {
-		squad := OptimizeSquadWithBenchReserve(players, constraints, benchR)
-		if squad == nil {
-			continue
-		}
-		ep := squad.Starting11EP()
-		if ep > bestEP {
-			bestEP = ep
-			best = squad
-		}
-	}
-	return best
-}
-
-func tryFormation(byPos map[int][]models.PlayerScore, c SquadConstraints, defN, midN, fwdN int, benchReserve int) *OptimizedSquad {
+func tryFormation(byPos map[int][]models.PlayerScore, c SquadConstraints, defN, midN, fwdN int) *OptimizedSquad {
 	picked := map[int]bool{}
 	teamCnt := map[int]int{}
 	squad := &OptimizedSquad{}
@@ -352,7 +334,6 @@ func tryFormationSeasonStart(
 	benchByPos map[int][]models.PlayerScore,
 	c SquadConstraints,
 	defN, midN, fwdN int,
-	benchReserve int,
 ) *OptimizedSquad {
 	picked := map[int]bool{}
 	teamCnt := map[int]int{}
@@ -460,16 +441,18 @@ func tryFormationSeasonStart(
 	squad.TotalCost = cost
 	squad.Bank = c.Budget100k - cost
 	squad.Form = [3]int{defN, midN, fwdN}
-	squad.BenchReserve = benchReserve
 	squad.TeamEP = squad.teamEP()
 	return squad
 }
 
-func OptimizeSeasonStartSquadWithReserve(
+// OptimizeSeasonStartSquad builds the best season-start 15-player squad
+// across all valid formations: bench filled first with the cheapest
+// minute-qualified options per position, then starters filled with
+// whatever budget remains, picked by value (EP/cost).
+func OptimizeSeasonStartSquad(
 	starterQuality []models.PlayerScore,
 	allPlayers []models.PlayerScore,
 	constraints SquadConstraints,
-	benchReserve int,
 ) *OptimizedSquad {
 	if constraints.Budget100k == 0 {
 		constraints = SeasonStartSquadConstraints()
@@ -489,8 +472,8 @@ func OptimizeSeasonStartSquadWithReserve(
 			len(startersByPos[1]), len(startersByPos[2]), len(startersByPos[3]), len(startersByPos[4]))
 		return nil
 	}
-	log.Printf("SeasonStartSquad: benchR=%d starters GK=%d DEF=%d MID=%d FWD=%d | bench GK=%d DEF=%d MID=%d FWD=%d",
-		benchReserve, len(startersByPos[1]), len(startersByPos[2]), len(startersByPos[3]), len(startersByPos[4]),
+	log.Printf("SeasonStartSquad: starters GK=%d DEF=%d MID=%d FWD=%d | bench GK=%d DEF=%d MID=%d FWD=%d",
+		len(startersByPos[1]), len(startersByPos[2]), len(startersByPos[3]), len(startersByPos[4]),
 		len(benchByPos[1]), len(benchByPos[2]), len(benchByPos[3]), len(benchByPos[4]))
 
 	bestEP := -1.0
@@ -498,7 +481,7 @@ func OptimizeSeasonStartSquadWithReserve(
 
 	for _, formation := range validFormations {
 		defN, midN, fwdN := formation[0], formation[1], formation[2]
-		squad := tryFormationSeasonStart(startersByPos, benchByPos, constraints, defN, midN, fwdN, benchReserve)
+		squad := tryFormationSeasonStart(startersByPos, benchByPos, constraints, defN, midN, fwdN)
 		if squad == nil {
 			continue
 		}
@@ -514,28 +497,6 @@ func OptimizeSeasonStartSquadWithReserve(
 		bestSquad.TotalEP = bestSquad.starting11EP()
 	}
 	return bestSquad
-}
-
-func OptimizeSeasonStartSquad(
-	starterQuality []models.PlayerScore,
-	allPlayers []models.PlayerScore,
-	constraints SquadConstraints,
-) *OptimizedSquad {
-	bestEP := -1.0
-	var best *OptimizedSquad
-
-	for benchR := 200; benchR >= 30; benchR -= 10 {
-		squad := OptimizeSeasonStartSquadWithReserve(starterQuality, allPlayers, constraints, benchR)
-		if squad == nil {
-			continue
-		}
-		ep := squad.Starting11EP()
-		if ep > bestEP {
-			bestEP = ep
-			best = squad
-		}
-	}
-	return best
 }
 
 func buildPosMap(players []models.PlayerScore, filterByEP bool) map[int][]models.PlayerScore {

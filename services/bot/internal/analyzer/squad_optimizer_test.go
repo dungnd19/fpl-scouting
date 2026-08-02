@@ -63,22 +63,6 @@ func TestOptimizeSquadBest_AmplePool(t *testing.T) {
 	}
 }
 
-// OptimizeSquadBest sweeps benchReserve from 200 down to 30, but that value
-// is currently only recorded on the result (OptimizedSquad.BenchReserve) —
-// it doesn't change how tryFormation spends the budget. So the sweep must
-// still land on a valid, non-nil squad rather than erroring out partway.
-func TestOptimizeSquadBest_SweepReturnsNonNil(t *testing.T) {
-	pool := amplePool()
-	swept := OptimizeSquadBest(pool, DefaultSquadConstraints())
-	direct := OptimizeSquadWithBenchReserve(pool, DefaultSquadConstraints(), 200)
-	if swept == nil || direct == nil {
-		t.Fatalf("expected non-nil squads, got swept=%v direct=%v", swept, direct)
-	}
-	if swept.TotalCost != direct.TotalCost {
-		t.Errorf("sweep result cost %d differs from a direct call's %d", swept.TotalCost, direct.TotalCost)
-	}
-}
-
 func TestOptimizeSquadBest_NoForwards_ReturnsNil(t *testing.T) {
 	var pool []models.PlayerScore
 	pool = append(pool, mkPlayers(1, 6, 1, 1, 40, 2, 30, 1, 2500)...)

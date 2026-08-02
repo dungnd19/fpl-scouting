@@ -6,6 +6,31 @@ section's checklist as steps complete — don't leave finished items unchecked.
 
 ---
 
+## 2026-08-02 — Fix dead bench-reserve sweep
+
+**Plan:**
+- [x] Remove `OptimizedSquad.BenchReserve` field.
+- [x] Merge `OptimizeSquadWithBenchReserve` into `OptimizeSquadBest`
+      (single call, no sweep loop); drop `benchReserve` param from
+      `tryFormation`.
+- [x] Merge `OptimizeSeasonStartSquadWithReserve` into
+      `OptimizeSeasonStartSquad`; drop `benchReserve` param from
+      `tryFormationSeasonStart`; drop it from the `SeasonStartSquad:` log
+      line.
+- [x] Remove the dead `-bench-reserve` CLI flag and `squad.BenchReserve`
+      printf in `services/bot/main.go`'s `-suggest-cli` debug path.
+- [x] Update `squad_optimizer_test.go`: drop
+      `TestOptimizeSquadBest_SweepReturnsNonNil` (tested the now-removed
+      sweep) and its direct call to the now-removed
+      `OptimizeSquadWithBenchReserve`.
+
+**Test plan:**
+- [x] `go build ./...`, `go vet ./...`, `go test ./...` clean in
+      `services/bot` (existing squad_optimizer_test.go suite from Task 3
+      still green — confirms this is a pure refactor, not a behavior
+      change to the position/team/budget guards).
+- [x] `services/core` unaffected — confirmed build/test still pass.
+
 ## 2026-08-02 — Deploy workflow
 
 **Plan:**
