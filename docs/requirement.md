@@ -58,3 +58,7 @@ Status: new
 - `/suggest`: add an optional GW-horizon argument (`/suggest [1|2|3]`),
   default 3, threading into the existing multi-GW lookahead.
 See `docs/plan.md` Tasks 1-3.
+
+**Progress (2026-08-02):** Task 1 (goose migrations) done. Task 2
+(`/suggest [1|2|3]` horizon) done — see `docs/plan.md` for details. Task 3
+(`/init-squad` tests + rename) not started.

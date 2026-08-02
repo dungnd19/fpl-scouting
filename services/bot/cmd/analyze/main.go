@@ -49,7 +49,7 @@ func main() {
 }
 
 func runSuggest(svc *analyzer.Service, repo *database.Repository) {
-	recs, err := svc.Suggest()
+	recs, err := svc.Suggest(3)
 	if err != nil {
 		log.Fatalf("Analysis failed: %v", err)
 	}

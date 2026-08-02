@@ -53,8 +53,9 @@ func NewService(repo *database.Repository, userID string) *Service {
 }
 
 // Suggest runs analysis and returns transfer recommendations for the user's current squad.
+// numGameweeks controls the fixture lookahead window (1-3).
 // Phase 1-6 integrated scoring pipeline.
-func (s *Service) Suggest() ([]models.Recommendation, error) {
+func (s *Service) Suggest(numGameweeks int) ([]models.Recommendation, error) {
 	s.repo.CleanOldRecommendations(7)
 
 	myTeamIDs, err := s.repo.GetMyTeamPlayerIDs(s.userID)
@@ -152,7 +153,7 @@ func (s *Service) Suggest() ([]models.Recommendation, error) {
 			defconScore = expectedDefconPoints(cbirtPer90, minsFrac, 12)
 		}
 
-		fixtures, _ := s.repo.GetUpcomingFixtures(players[i].TeamID, currentGW, 3)
+		fixtures, _ := s.repo.GetUpcomingFixtures(players[i].TeamID, currentGW, numGameweeks)
 		if len(fixtures) > 0 {
 			var fwdList []FixtureWithDifficulty
 			for j, f := range fixtures {

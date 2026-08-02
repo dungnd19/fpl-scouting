@@ -70,57 +70,82 @@ Full design in `.claude/plans/read-2-new-requirement-hazy-sunrise.md`
 (Tasks 1-3). Task 1 (migrations) must land first — Tasks 2 and 3 both read
 via `database.Repository` methods that depend on the migrated schema.
 
-### Task 1 — Real migration framework (goose) in fpl-core
+### Task 1 — Real migration framework (goose) in fpl-core — DONE
 
 **Test plan (write before/alongside implementation) — new
 `services/core/internal/database/migrations_test.go`, stdlib `testing`,
 table-driven, temp SQLite file per case:**
-- [ ] Fresh DB → all 11 tables created, `goose_db_version` at 2, no errors.
-- [ ] Pre-existing DB (old schema + old 3 `ALTER TABLE`s, no goose table)
+- [x] Fresh DB → all 11 tables created, `goose_db_version` at 2, no errors.
+- [x] Pre-existing DB (old schema + old 3 `ALTER TABLE`s, no goose table)
       → new `runMigrations` doesn't error, version table seeded at 2.
-- [ ] Idempotency: `runMigrations` called twice in a row → second call
+- [x] Idempotency: `runMigrations` called twice in a row → second call
       no-ops, no error.
-- [ ] Pre-existing DB predating even the DEFCON columns → columns added
+- [x] Pre-existing DB predating even the DEFCON columns → columns added
       exactly once, no error.
-- [ ] Manual: `docker compose build && docker compose up -d fpl-core`,
-      `make db-status` still reports correctly, no migration errors in
-      logs on a fresh volume (and the real server's volume, if reachable).
+- [x] Manual: `docker compose build && docker compose up -d fpl-core`,
+      no migration errors in logs on a fresh volume (isolated `docker run`
+      against a throwaway volume) **and** against this dev machine's real
+      local `fpl-data` volume — a genuine pre-goose DB from 2026-07-28,
+      confirmed bootstrapped to `goose_db_version` 2 with DEFCON columns
+      and all 564 players intact, zero data loss. `make db-status` itself
+      is broken independent of this change (`db-query.sh` shells out to a
+      `sqlite3` CLI binary that was never installed in the runtime Alpine
+      stage — pre-existing bug, not in this task's scope). Real production
+      server volume still unverified — no SSH access from this environment.
 
 **Plan:**
-- [ ] Bump `services/core/Dockerfile` + `services/bot/Dockerfile` builder
+- [x] Bump `services/core/Dockerfile` + `services/bot/Dockerfile` builder
       Go version and both `go.mod` `go` directives off 1.18 (goose needs
       newer than 1.18); verify `docker compose build` still succeeds.
-- [ ] Add `github.com/pressly/goose/v3` to `services/core/go.mod` only.
-- [ ] Create `sql/migrations/00001_initial_schema.sql` (current
-      `sql/schema.sql` verbatim, goose `Up`/`Down` annotations).
-- [ ] Create `sql/migrations/00002_player_history_defcon_columns.sql`
-      (the 3 `ALTER TABLE` statements, now goose-tracked).
-- [ ] `go:embed` migrations into `services/core/internal/database`; drop
+      Bumped to `golang:1.26-alpine` / `go 1.26` (matches this machine's
+      `~/.local/go`). Also had to bump `mattn/go-sqlite3` v1.14.18 →
+      v1.14.49 — the old version fails to compile against Alpine 3.24's
+      newer musl headers (`off64_t`/`osPread64` errors), unrelated to
+      goose but surfaced by the same base-image bump.
+- [x] Add `github.com/pressly/goose/v3` (v3.27.3) to `services/core/go.mod`
+      only.
+- [x] Create `sql/migrations/00001_initial_schema.sql` (current
+      `sql/schema.sql` verbatim, goose `Up`/`Down` annotations). Lives at
+      `services/core/internal/database/migrations/00001_initial_schema.sql`
+      instead of repo-root `sql/` — Go's `//go:embed` can't cross a module
+      boundary (`services/core` is its own module), so the migrations have
+      to be co-located with the package that embeds them. Deleted the now-
+      unused repo-root `sql/schema.sql` and updated its two doc references
+      (`README.md`, `CLAUDE.md`).
+- [x] Create `sql/migrations/00002_player_history_defcon_columns.sql`
+      (the 3 `ALTER TABLE` statements, now goose-tracked). Same path note
+      as above.
+- [x] `go:embed` migrations into `services/core/internal/database`; drop
       the `sql/schema.sql` bind-mount + `SCHEMA_PATH` env var from
       `docker-compose.yaml`.
-- [ ] Replace `executeSchema()`/`runMigrations()` in `database.go` with
-      goose-based `runMigrations(db)`.
-- [ ] Add pre-existing-DB bootstrap detection (seed `goose_db_version` to
+- [x] Replace `executeSchema()`/`runMigrations()` in `database.go` with
+      goose-based `runMigrations(db)` (new `migrations.go`).
+- [x] Add pre-existing-DB bootstrap detection (seed `goose_db_version` to
       2 before calling `Up`, so 00002's `ALTER TABLE` never re-runs on a
-      DB that already has those columns from the old ad hoc path).
+      DB that already has those columns from the old ad hoc path). Seeds
+      version 1 unconditionally and version 2 only if the DEFCON columns
+      already exist on `player_history` — otherwise 00002 is left to run
+      for real and add them (needed to pass the pre-DEFCON test case).
 
-### Task 2 — `/suggest` optional GW-horizon argument
+### Task 2 — `/suggest` optional GW-horizon argument — DONE
 
 **Test plan (write first) — new
 `services/bot/internal/telegram/suggest_args_test.go`, table-driven:**
-- [ ] `parseSuggestHorizon` on `"/suggest"`, `"/suggest 1"`, `"2"`, `"3"`
+- [x] `parseSuggestHorizon` on `"/suggest"`, `"/suggest 1"`, `"2"`, `"3"`
       → valid, defaults to 3 when absent.
-- [ ] `"/suggest 4"` (out of range) and `"/suggest abc"` (not a number)
+- [x] `"/suggest 4"` (out of range) and `"/suggest abc"` (not a number)
       → rejected with a clear error, not silently clamped.
-- [ ] `"/suggest  2  "` (whitespace) parses correctly.
+- [x] `"/suggest  2  "` (whitespace) parses correctly.
 - [ ] Manual: `/suggest`, `/suggest 1`, `/suggest 2` against the real bot
-      — fixture count / EP figures visibly differ by horizon.
+      — fixture count / EP figures visibly differ by horizon. Not run —
+      no live bot/Telegram access from this environment.
 
 **Plan:**
-- [ ] `analyzer.Service.Suggest()` → `Suggest(numGameweeks int)`; replace
+- [x] `analyzer.Service.Suggest()` → `Suggest(numGameweeks int)`; replaced
       the hardcoded `3` in the `GetUpcomingFixtures` call (analyzer.go:155).
-- [ ] Extract `parseSuggestHorizon(text string) (int, error)` in the
-      telegram package; wire into `handleSuggest`, default 3, reply with
+      Also updated the standalone `cmd/analyze` debug CLI to pass `3`.
+- [x] Extract `parseSuggestHorizon(text string) (int, error)` in the
+      telegram package; wired into `handleSuggest`, default 3, replies with
       a friendly error on invalid input instead of clamping silently.
 
 ### Task 3 — `/init-squad`: unit tests first, then rename from `/startsquad`

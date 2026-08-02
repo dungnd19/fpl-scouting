@@ -171,13 +171,37 @@ func (b *Bot) handleFetch(message *tgbotapi.Message) {
 	b.api.Send(msg)
 }
 
+// parseSuggestHorizon extracts the optional gameweek-lookahead argument from
+// "/suggest [1|2|3]", defaulting to 3 when absent.
+func parseSuggestHorizon(text string) (int, error) {
+	arg := strings.TrimSpace(strings.TrimPrefix(text, "/suggest"))
+	if arg == "" {
+		return 3, nil
+	}
+	n, err := strconv.Atoi(arg)
+	if err != nil {
+		return 0, fmt.Errorf("gameweek horizon must be a number (1-3), got %q", arg)
+	}
+	if n < 1 || n > 3 {
+		return 0, fmt.Errorf("gameweek horizon must be between 1 and 3, got %d", n)
+	}
+	return n, nil
+}
+
 // handleSuggest runs on-demand analysis and sends transfer recommendations
 func (b *Bot) handleSuggest(message *tgbotapi.Message) {
+	horizon, err := parseSuggestHorizon(message.Text)
+	if err != nil {
+		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("%s. Usage: /suggest [1|2|3]", err.Error()))
+		b.api.Send(msg)
+		return
+	}
+
 	// Send "thinking" message
 	thinking := tgbotapi.NewMessage(message.Chat.ID, "Analyzing your squad against all players (xG/xA/xCS)...")
 	b.api.Send(thinking)
 
-	recs, err := b.analyzer.Suggest()
+	recs, err := b.analyzer.Suggest(horizon)
 	if err != nil {
 		msg := tgbotapi.NewMessage(message.Chat.ID, fmt.Sprintf("Analysis failed: %s", err.Error()))
 		b.api.Send(msg)
