@@ -1,3 +1,4 @@
+-- +goose Up
 -- FPL Scouting SQLite Schema
 -- Optimized for low memory usage
 
@@ -71,9 +72,6 @@ CREATE TABLE IF NOT EXISTS player_history (
     expected_assists REAL,
     expected_goal_involvements REAL,
     expected_goals_conceded REAL,
-    clearances_blocks_interceptions INTEGER,
-    tackles INTEGER,
-    recoveries INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(player_id, event) -- prevent duplicates
 );
@@ -235,3 +233,16 @@ CREATE TABLE IF NOT EXISTS cross_season_map (
 
 CREATE INDEX IF NOT EXISTS idx_cross_season_map_player ON cross_season_map(current_player_id);
 CREATE INDEX IF NOT EXISTS idx_cross_season_map_name ON cross_season_map(prior_player_name, season);
+
+-- +goose Down
+DROP TABLE IF EXISTS cross_season_map;
+DROP TABLE IF EXISTS season_history;
+DROP TABLE IF EXISTS my_team;
+DROP TABLE IF EXISTS metadata;
+DROP TABLE IF EXISTS user_state;
+DROP TABLE IF EXISTS transfer_log;
+DROP TABLE IF EXISTS recommendations;
+DROP TABLE IF EXISTS teams;
+DROP TABLE IF EXISTS fixtures;
+DROP TABLE IF EXISTS player_history;
+DROP TABLE IF EXISTS players;

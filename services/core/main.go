@@ -21,7 +21,6 @@ import (
 // Config holds application configuration
 type Config struct {
 	DBPath        string
-	SchemaPath    string
 	FetchSchedule string
 	UserID        string
 	FPLTeamID     string
@@ -47,8 +46,7 @@ func main() {
 
 	// Initialize database
 	db, err := database.New(database.Config{
-		Path:       cfg.DBPath,
-		SchemaPath: cfg.SchemaPath,
+		Path: cfg.DBPath,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
@@ -163,7 +161,6 @@ func main() {
 func loadConfig() Config {
 	return Config{
 		DBPath:        getEnv("DB_PATH", "/data/fpl.db"),
-		SchemaPath:    getEnv("SCHEMA_PATH", "/app/schema.sql"),
 		FetchSchedule: getEnv("FETCH_SCHEDULE", "0 */1 * * *"),
 		UserID:        getEnv("USER_ID", "default"),
 		FPLTeamID:     getEnv("FPL_TEAM_ID", ""),

@@ -7,11 +7,9 @@ services:
     restart: unless-stopped
     volumes:
       - fpl-data:/data
-      - ./sql/schema.sql:/app/schema.sql:ro
       - ./db-query.sh:/app/db-query.sh:ro
     environment:
       - DB_PATH=/data/fpl.db
-      - SCHEMA_PATH=/app/schema.sql
       - FETCH_SCHEDULE=${FETCH_SCHEDULE:-0 */1 * * *}
       - USER_ID=${DEFAULT_USER_ID:-default}
       - FPL_TEAM_ID=${FPL_TEAM_ID}

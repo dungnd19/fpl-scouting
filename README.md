@@ -16,8 +16,9 @@ FPL API → fpl-core (fetch, hourly) → SQLite → /suggest → fpl-bot (analyz
 
 Both services are separate Go modules, built as ~15MB Alpine images, and
 capped at 50MB/60MB memory respectively. There's no separate analytics
-database — everything lives in one SQLite file (`sql/schema.sql`, 9 tables),
-mounted as a shared Docker volume.
+database — everything lives in one SQLite file (schema managed by
+goose migrations in `services/core/internal/database/migrations/`, 11
+tables), mounted as a shared Docker volume.
 
 ## What it does
 

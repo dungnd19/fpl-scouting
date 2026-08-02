@@ -44,7 +44,7 @@ There is no `go test` suite; validation is done manually via `make fetch` and `m
 
 - **fpl-core** (`services/core/`) — Fetch-only. Cron-scheduled every 1h, fetches FPL API data (players, history, fixtures, user's team) and writes to SQLite. Supports `-once -fetch` CLI flag for one-shot execution.
 - **fpl-bot** (`services/bot/`) — Long-running. Handles Telegram commands, runs on-demand analysis via `/suggest`, generates position reports via `/report`, and executes user-confirmed transfers via FPL private API.
-- **SQLite** — Shared via Docker volume at `/data/fpl.db`. Schema in `sql/schema.sql` (9 tables). Uses WAL mode, 2MB cache. Both services read/write with 5s busy timeout for contention.
+- **SQLite** — Shared via Docker volume at `/data/fpl.db`. Schema managed by goose migrations, embedded in the `fpl-core` binary from `services/core/internal/database/migrations/*.sql` (11 tables). Uses WAL mode, 2MB cache. Both services read/write with 5s busy timeout for contention.
 
 Data flow: `FPL API → fpl-core (fetch hourly) → SQLite → User sends /suggest → fpl-bot (analyze on-demand) → Telegram → User confirms → fpl-bot (trade) → FPL API`
 

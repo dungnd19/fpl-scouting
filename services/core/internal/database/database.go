@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"os"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -15,8 +14,7 @@ type DB struct {
 
 // Config holds database configuration
 type Config struct {
-	Path       string
-	SchemaPath string
+	Path string
 }
 
 // New creates a new database connection
@@ -44,15 +42,7 @@ func New(cfg Config) (*DB, error) {
 		}
 	}
 
-	// Load and execute schema if provided
-	if cfg.SchemaPath != "" {
-		if err := executeSchema(db, cfg.SchemaPath); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("failed to execute schema: %w", err)
-		}
-	}
-
-	// Run migrations for backwards compat (v2: added DEFCON columns)
+	// Apply schema migrations (goose-tracked, embedded in the binary).
 	if err := runMigrations(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
@@ -65,32 +55,4 @@ func New(cfg Config) (*DB, error) {
 	}
 
 	return &DB{db}, nil
-}
-
-// executeSchema reads and executes SQL schema file
-func executeSchema(db *sql.DB, path string) error {
-	schema, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("failed to read schema file: %w", err)
-	}
-
-	if _, err := db.Exec(string(schema)); err != nil {
-		return fmt.Errorf("failed to execute schema: %w", err)
-	}
-
-	return nil
-}
-
-// runMigrations applies backwards-compatible schema changes.
-func runMigrations(db *sql.DB) error {
-	// v2: add DEFCON columns to player_history (added 2026-07)
-	migrations := []string{
-		"ALTER TABLE player_history ADD COLUMN clearances_blocks_interceptions INTEGER DEFAULT 0",
-		"ALTER TABLE player_history ADD COLUMN tackles INTEGER DEFAULT 0",
-		"ALTER TABLE player_history ADD COLUMN recoveries INTEGER DEFAULT 0",
-	}
-	for _, m := range migrations {
-		db.Exec(m) // ignore errors (column already exists)
-	}
-	return nil
 }
